@@ -41,6 +41,10 @@ logging.basicConfig(
 logger = logging.getLogger("MinolBridge")
 logger.info(f"Log level set to: {log_level_str}")
 
+if config.get("base_url") is None:
+    logger.error("No base_url configured, aborting")
+    sys.exit(1)
+
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 if config.get("mqtt_user") and config.get("mqtt_password"):
