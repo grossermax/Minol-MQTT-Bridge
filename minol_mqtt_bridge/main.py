@@ -285,7 +285,8 @@ def run_sync():
             r_name = room.get("room_name", "Unknown")
             device_num = room.get("device_number", "")
 
-            safe_room = "".join(c for c in r_name if c.isalnum()).lower()
+            safe_room = "".join(c for c in r_name if c.isalnum()).lower() \
+                .replace("ä","ae").replace("ö","oe").replace("ü","ue").replace("ß","ss")
             safe_device = "".join(c for c in str(device_num) if c.isalnum())
             uid = f"{category_key}_{safe_room}_{safe_device}" if safe_device else f"{category_key}_{safe_room}"
 
