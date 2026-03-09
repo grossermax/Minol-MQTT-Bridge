@@ -48,7 +48,7 @@ This add-on will be available through a Home Assistant add-on repository. Stay t
 #### Manual Installation
 
 1. Clone or download this repository
-2. Copy the `addons/minol_mqtt` directory to your Home Assistant `/addons` folder
+2. Copy the `minol_mqtt` directory to your Home Assistant `/addons` folder
    - On Home Assistant OS/Supervised: `/addons/minol_mqtt`
    - Alternative: Use the File Editor or SSH/Samba to copy files
 3. Navigate to **Settings** → **Add-ons** → **Add-on Store**
