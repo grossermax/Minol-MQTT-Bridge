@@ -41,6 +41,10 @@ logging.basicConfig(
 logger = logging.getLogger("MinolBridge")
 logger.info(f"Log level set to: {log_level_str}")
 
+if config.get("base_url") is None:
+    logger.error("No base_url configured, aborting")
+    sys.exit(1)
+
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 if config.get("mqtt_user") and config.get("mqtt_password"):
@@ -285,7 +289,8 @@ def run_sync():
             r_name = room.get("room_name", "Unknown")
             device_num = room.get("device_number", "")
 
-            safe_room = "".join(c for c in r_name if c.isalnum()).lower()
+            safe_room = "".join(c for c in r_name if c.isalnum()).lower() \
+                .replace("ä","ae").replace("ö","oe").replace("ü","ue").replace("ß","ss")
             safe_device = "".join(c for c in str(device_num) if c.isalnum())
             uid = f"{category_key}_{safe_room}_{safe_device}" if safe_device else f"{category_key}_{safe_room}"
 
