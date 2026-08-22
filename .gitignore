@@ -1,0 +1,11 @@
+venv*
+*_cache
+*cache__
+.idea
+build
+dist
+.env
+.coverage
+/protocols/
+local/*
+.vscode

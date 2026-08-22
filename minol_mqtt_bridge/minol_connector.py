@@ -5,18 +5,25 @@ Handles authentication and data fetching from the Minol customer portal
 using Playwright for Azure B2C SAML authentication and requests for API calls.
 """
 
-import requests
-from bs4 import BeautifulSoup
 import json
 import logging
-import base64
-from urllib.parse import urlparse, parse_qs
-from playwright.sync_api import sync_playwright
 import time
-from typing import Dict, Optional, List
 from datetime import datetime, timedelta
+from typing import Dict, Optional, List
+
+import requests
+from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
+
+
+def _to_number(x, default=0):
+    """Best-effort numeric coercion."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
@@ -36,9 +43,11 @@ class MinolConnector:
         self.acs_url = f"{base_url}/saml2/sp/acs"
 
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+            }
+        )
 
         self.user_tenants = None
         self.user_num = None
@@ -54,8 +63,7 @@ class MinolConnector:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
             context = browser.new_context()
             page = context.new_page()
@@ -85,11 +93,15 @@ class MinolConnector:
                     logger.info("Filling login form...")
                     time.sleep(2)
 
-                    email_input = page.locator('input[id="signInName"], input[name="signInName"], input[type="email"], input[placeholder*="Kundennummer"]')
+                    email_input = page.locator(
+                        'input[id="signInName"], input[name="signInName"], input[type="email"], input[placeholder*="Kundennummer"]'
+                    )
                     email_input.wait_for(state="visible", timeout=10000)
                     email_input.fill(self.email)
 
-                    password_input = page.locator('input[id="password"], input[name="password"], input[type="password"]')
+                    password_input = page.locator(
+                        'input[id="password"], input[name="password"], input[type="password"]'
+                    )
                     password_input.wait_for(state="visible", timeout=5000)
                     password_input.fill(self.password)
 
@@ -111,16 +123,16 @@ class MinolConnector:
 
                 for cookie in cookies:
                     self.session.cookies.set(
-                        name=cookie['name'],
-                        value=cookie['value'],
-                        domain=cookie.get('domain', ''),
-                        path=cookie.get('path', '/'),
-                        secure=cookie.get('secure', False)
+                        name=cookie["name"],
+                        value=cookie["value"],
+                        domain=cookie.get("domain", ""),
+                        path=cookie.get("path", "/"),
+                        secure=cookie.get("secure", False),
                     )
 
                 logger.info(f"Transferred {len(cookies)} cookies")
 
-                mysapsso2_present = any(c['name'] == 'MYSAPSSO2' for c in cookies)
+                mysapsso2_present = any(c["name"] == "MYSAPSSO2" for c in cookies)
                 if mysapsso2_present:
                     logger.info("MYSAPSSO2 cookie obtained")
                 else:
@@ -135,24 +147,23 @@ class MinolConnector:
         logger.info("Login successful.")
         self._authenticated = True
 
-
     def _get_monitoring_index(self):
         """Access the monitoring index page."""
         logger.info("Getting monitoring index page...")
         url = f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true"
         headers = {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'Accept-Language': 'de-DE,de;q=0.9,en-DE;q=0.8,en;q=0.7,en-US;q=0.6',
-            'DNT': '1',
-            'Referer': f'{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true/',
-            'sec-ch-ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-user': '?1',
-            'upgrade-insecure-requests': '1',
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "Accept-Language": "de-DE,de;q=0.9,en-DE;q=0.8,en;q=0.7,en-US;q=0.6",
+            "DNT": "1",
+            "Referer": f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true/",
+            "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
         }
         try:
             response = self.session.get(url, headers=headers, allow_redirects=True)
@@ -164,7 +175,7 @@ class MinolConnector:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error getting monitoring index page: {e}")
             raise
-    
+
     def _get_monitoring_client(self):
         """Complete the login process by accessing the monitoring client URL."""
         logger.info("Getting monitoring client...")
@@ -185,22 +196,23 @@ class MinolConnector:
         logger.info("Fetching user tenants...")
         url = f"{self.base_url}/minol.com~kundenportal~em~web/rest/EMData/getUserTenants"
         headers = {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Content-Type': 'application/json; charset=utf-8',
-            'Referer': f'{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true',
-            'X-Requested-With': 'XMLHttpRequest'
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/json; charset=utf-8",
+            "Referer": f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true",
+            "X-Requested-With": "XMLHttpRequest",
         }
         logger.debug(f"Fetching user tenants from URL: {url}")
         logger.debug(f"Request Headers: {json.dumps(headers, indent=2)}")
+        response = None
         try:
             logger.debug(f"Session cookies before getUserTenants: {self.session.cookies}")
             response = self.session.get(url, headers=headers)
             response.raise_for_status()
 
-            content_type = response.headers.get('Content-Type', '')
+            content_type = response.headers.get("Content-Type", "")
             logger.debug(f"getUserTenants response URL: {response.url}")
             logger.debug(f"getUserTenants response headers: {dict(response.headers)}")
-            if 'application/json' not in content_type:
+            if "application/json" not in content_type:
                 raise ValueError(f"Expected JSON response, but got Content-Type: {content_type}")
 
             self.user_tenants = response.json()
@@ -215,12 +227,13 @@ class MinolConnector:
             raise
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Error processing user tenants response: {e}")
-            with open("user_tenants_error_response.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            logger.error("Response content saved to user_tenants_error_response.html")
+            if response is not None:
+                with open("user_tenants_error_response.html", "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                logger.error("Response content saved to user_tenants_error_response.html")
             raise
 
-    def fetch_em_data(self, timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH"):
+    def fetch_em_data(self, timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH", values_in_kwh=True):
         """
         Fetch eMonitoring data for a specific consumption type.
 
@@ -229,6 +242,8 @@ class MinolConnector:
             timeline_end (str): End period in format YYYYMM (e.g., "202510")
             cons_type (str): Type of consumption - "HEIZUNG", "WARMWASSER", or "KALTWASSER"
             dlg_key (str): Dialog key, default "100EH" for heating
+            values_in_kwh (bool): If True, heat cost allocator values are converted to
+                kWh. If False, the raw units ("EH") are returned.
 
         Returns:
             dict: JSON response containing table (per room) and chart (timeline) data
@@ -247,13 +262,13 @@ class MinolConnector:
             "timelineStartTxt": f"{timeline_start[4:]}.{timeline_start[:4]}",
             "timelineEnd": timeline_end,
             "timelineEndTxt": f"{timeline_end[4:]}.{timeline_end[:4]}",
-            "valuesInKWH": True,
+            "valuesInKWH": values_in_kwh,
             "dlgKey": dlg_key,
         }
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Content-Type": "application/json; charset=UTF-8",
-            "Referer": f'{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true',
+            "Referer": f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true",
             "X-Requested-With": "XMLHttpRequest",
         }
 
@@ -261,6 +276,7 @@ class MinolConnector:
         logger.debug(f"Request Payload: {json.dumps(payload, indent=2)}")
         logger.debug(f"Request Headers: {json.dumps(headers, indent=2)}")
 
+        response = None
         try:
             response = self.session.post(url, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
@@ -272,9 +288,10 @@ class MinolConnector:
             raise
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding EM data response: {e}")
-            with open("em_data_error_response.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            logger.error("Response content saved to em_data_error_response.html")
+            if response is not None:
+                with open("em_data_error_response.html", "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                logger.error("Response content saved to em_data_error_response.html")
             raise
 
     def get_all_consumption_data(self, timeline_start, timeline_end):
@@ -313,14 +330,13 @@ class MinolConnector:
 
         consumption_data = {
             "timestamp": datetime.now().isoformat(),
-            "period": {
-                "start": timeline_start,
-                "end": timeline_end
-            }
+            "period": {"start": timeline_start, "end": timeline_end},
         }
 
         try:
-            heating_raw = self.fetch_em_data(timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH")
+            heating_raw = self.fetch_em_data(
+                timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH", values_in_kwh=False
+            )
             consumption_data["heating"] = self._process_consumption_data(
                 heating_raw, "HEIZUNG", timeline_start, timeline_end
             )
@@ -348,7 +364,8 @@ class MinolConnector:
 
         return consumption_data
 
-    def _process_consumption_data(self, raw_data, consumption_type, timeline_start, timeline_end):
+    @staticmethod
+    def _process_consumption_data(raw_data, consumption_type, timeline_start, timeline_end):
         """
         Process raw consumption data into a structured format.
 
@@ -364,28 +381,45 @@ class MinolConnector:
         Returns:
             dict: Processed data with by_room, overall timeline, and total_consumption
         """
-        processed = {
-            "by_room": [],
-            "timeline": [],
-            "total_consumption": 0.0
-        }
+        processed = {"by_room": [], "timeline": [], "total_consumption": 0.0}
 
+        is_heating = consumption_type == "HEIZUNG"
+
+        total_consumption = 0.0
         if "table" in raw_data and raw_data["table"]:
             for room_data in raw_data["table"]:
+                unit = room_data.get("unit", "kWh")
+                if unit == "KWH":
+                    unit = "kWh"
+
+                # Minol reports heat cost allocator readings in whole "Einheiten".
+                consumption = room_data.get("consumption", 0)
+                reading = room_data.get("ablesung", 0)
+                initial_reading = room_data.get("anfangsstand", 0)
+                if is_heating:
+                    consumption = int(round(_to_number(consumption)))
+                    reading = int(round(_to_number(reading)))
+                    initial_reading = int(round(_to_number(initial_reading)))
+
                 room_info = {
                     "room_name": room_data.get("raum", "Unknown"),
                     "room_key": room_data.get("raumKey"),
                     "device_number": room_data.get("gerNr"),
-                    "consumption": room_data.get("consumption", 0),
-                    "unit": room_data.get("unit", "KWH"),
+                    "consumption": consumption,
+                    "unit": unit,
                     "consumption_evaluated": room_data.get("consumptionBew", 0),
                     "evaluation_score": room_data.get("bewertung"),
-                    "reading": room_data.get("ablesung", 0),
-                    "initial_reading": room_data.get("anfangsstand", 0),
+                    "reading": reading,
+                    "initial_reading": initial_reading,
                     # Note: Per-room timeline not available from API
                 }
                 processed["by_room"].append(room_info)
-                processed["total_consumption"] += room_data.get("consumption", 0)
+                total_consumption += _to_number(consumption)
+
+        if is_heating:
+            processed["total_consumption"] = int(round(total_consumption))
+        else:
+            processed["total_consumption"] = total_consumption
 
         if "chart" in raw_data and raw_data["chart"]:
             for entry in raw_data["chart"]:
@@ -395,7 +429,7 @@ class MinolConnector:
                         "period_int": entry.get("categoryInt"),
                         "value": entry.get("value", 0),
                         "label": entry.get("label"),
-                        "num_values": entry.get("anzValues", 0)
+                        "num_values": entry.get("anzValues", 0),
                     }
                     processed["timeline"].append(timeline_entry)
 
@@ -421,16 +455,14 @@ class MinolConnector:
             self._authenticated = False
             return False
 
-    def get_consumption_data(
-        self,
-        months_back: int = 12,
-        force_update: bool = False
-    ) -> Optional[Dict]:
+    def get_consumption_data(self, months_back: int = 12, force_update: bool = False) -> Optional[Dict]:
         """
         Fetch all consumption data (heating, hot water, cold water) with caching.
 
         Args:
-            months_back: Number of months of historical data to fetch (default: 12)
+            months_back: Deprecated/ignored. Data is always fetched from the
+                start of the current billing year (January 1st) so the reading
+                matches the physical device, which resets annually.
             force_update: Force data refresh even if cached data exists
 
         Returns:
@@ -448,7 +480,12 @@ class MinolConnector:
 
         try:
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=30 * months_back)
+            # Query from the start of the current billing year (January 1st).
+            # Minol heat cost allocators reset to 0 on January 1st, so aligning
+            # the query window to the billing year makes the per-room reading
+            # match the physical device and increase monotonically (which is
+            # required for Home Assistant's total_increasing / Utility Meter).
+            start_date = end_date.replace(month=1, day=1)
 
             timeline_start = start_date.strftime("%Y%m")
             timeline_end = end_date.strftime("%Y%m")
@@ -549,11 +586,8 @@ class MinolConnector:
             return data[consumption_type]["timeline"]
         return None
 
-    def get_room_timeline(
-        self,
-        room_name: str,
-        consumption_type: str = "heating"
-    ) -> Optional[List[Dict]]:
+    @staticmethod
+    def get_room_timeline(room_name: str, consumption_type: str = "heating") -> Optional[List[Dict]]:
         """
         Get timeline data for a specific room.
 
@@ -586,10 +620,10 @@ class MinolConnector:
         url = f"{self.base_url}/minol.com~util~framework~ui5~common~web/rest/UserInfo/getUserDetail"
 
         headers = {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Content-Type': 'application/json; charset=utf-8',
-            'Referer': f'{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true',
-            'X-Requested-With': 'XMLHttpRequest'
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/json; charset=utf-8",
+            "Referer": f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true",
+            "X-Requested-With": "XMLHttpRequest",
         }
 
         try:
