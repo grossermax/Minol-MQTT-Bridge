@@ -29,18 +29,48 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
 }
 
+# All Minol consumption types supported by this bridge and how they map to the
+# internal category keys used throughout the code / MQTT topics.
+ALL_CONSUMPTION_TYPES = ("HEIZUNG", "WARMWASSER", "KALTWASSER")
+
 
 class MinolConnector:
     """Minol customer portal API client with Playwright-based authentication."""
 
-    def __init__(self, email: str, password: str, base_url: str = "https://webservices.minol.com"):
-        """Initialize the connector with user credentials."""
+    def __init__(
+        self,
+        email: str,
+        password: str,
+        base_url: str = "https://webservices.minol.com",
+        consumption_types: Optional[List[str]] = None,
+    ):
+        """Initialize the connector with user credentials.
+
+        Args:
+            email: Minol login (email / customer number).
+            password: Minol password.
+            base_url: Base URL of the Minol portal.
+            consumption_types: Optional list of Minol consumption types to fetch
+                (subset of ``HEIZUNG``, ``WARMWASSER``, ``KALTWASSER``). When
+                ``None`` or empty, all supported types are fetched. Restricting
+                this reduces the number of requests made against the Minol API.
+        """
         self.email = email
         self.password = password
 
         self.base_url = base_url
         self.login_url = f"{base_url}/"
         self.acs_url = f"{base_url}/saml2/sp/acs"
+
+        # Normalize the requested consumption types: keep only known values and
+        # fall back to "all" when nothing valid was provided.
+        if consumption_types:
+            normalized = [t.strip().upper() for t in consumption_types if isinstance(t, str) and t.strip()]
+            selected = [t for t in ALL_CONSUMPTION_TYPES if t in normalized]
+            self.consumption_types = selected or list(ALL_CONSUMPTION_TYPES)
+        else:
+            self.consumption_types = list(ALL_CONSUMPTION_TYPES)
+        logger.info(f"Enabled consumption types: {', '.join(self.consumption_types)}")
 
         self.session = requests.Session()
         self.session.headers.update(
@@ -333,36 +363,129 @@ class MinolConnector:
             "period": {"start": timeline_start, "end": timeline_end},
         }
 
-        try:
-            heating_raw = self.fetch_em_data(
-                timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH", values_in_kwh=False
-            )
-            consumption_data["heating"] = self._process_consumption_data(
-                heating_raw, "HEIZUNG", timeline_start, timeline_end
-            )
-        except Exception as e:
-            logger.error(f"Error fetching heating data: {e}")
-            consumption_data["heating"] = {"error": str(e)}
+        # Mapping of internal category key -> (Minol consType, dlgKey, valuesInKWH).
+        category_config = {
+            "heating": ("HEIZUNG", "100EH", False),
+            "hot_water": ("WARMWASSER", "100WW", True),
+            "cold_water": ("KALTWASSER", "100KW", True),
+        }
 
-        try:
-            hot_water_raw = self.fetch_em_data(timeline_start, timeline_end, cons_type="WARMWASSER", dlg_key="100WW")
-            consumption_data["hot_water"] = self._process_consumption_data(
-                hot_water_raw, "WARMWASSER", timeline_start, timeline_end
-            )
-        except Exception as e:
-            logger.error(f"Error fetching hot water data: {e}")
-            consumption_data["hot_water"] = {"error": str(e)}
+        # Only fetch the consumption types that were selected in the config to
+        # reduce the number of requests against the Minol API.
+        for category, (cons_type, dlg_key, values_in_kwh) in category_config.items():
+            if cons_type not in self.consumption_types:
+                logger.debug(f"Skipping {cons_type} ({category}); not in enabled consumption types.")
+                continue
+            try:
+                raw = self.fetch_em_data(
+                    timeline_start, timeline_end, cons_type=cons_type, dlg_key=dlg_key, values_in_kwh=values_in_kwh
+                )
+                consumption_data[category] = self._process_consumption_data(
+                    raw, cons_type, timeline_start, timeline_end
+                )
+            except Exception as e:
+                logger.error(f"Error fetching {category} data: {e}")
+                consumption_data[category] = {"error": str(e)}
 
-        try:
-            cold_water_raw = self.fetch_em_data(timeline_start, timeline_end, cons_type="KALTWASSER", dlg_key="100KW")
-            consumption_data["cold_water"] = self._process_consumption_data(
-                cold_water_raw, "KALTWASSER", timeline_start, timeline_end
-            )
-        except Exception as e:
-            logger.error(f"Error fetching cold water data: {e}")
-            consumption_data["cold_water"] = {"error": str(e)}
+        # Replace the aggregate/evaluated chart timeline with an accurate
+        # per-month breakdown in the same (raw) unit as the totals, and attach
+        # per-room monthly consumption. This is done by querying each month of
+        # the billing period individually (the Minol API returns per-room
+        # consumption for a single month when timelineStart == timelineEnd).
+        for category, (cons_type, dlg_key, values_in_kwh) in category_config.items():
+            if cons_type not in self.consumption_types:
+                continue
+            if "error" in consumption_data.get(category, {}):
+                continue
+            try:
+                self._augment_with_monthly_breakdown(
+                    consumption_data[category], timeline_start, timeline_end, cons_type, dlg_key, values_in_kwh
+                )
+            except Exception as e:
+                logger.warning(f"Could not build monthly breakdown for {category}: {e}")
 
         return consumption_data
+
+    @staticmethod
+    def _month_range(timeline_start, timeline_end):
+        """Yield every YYYYMM period from timeline_start to timeline_end (inclusive)."""
+        start_year, start_month = int(timeline_start[:4]), int(timeline_start[4:6])
+        end_year, end_month = int(timeline_end[:4]), int(timeline_end[4:6])
+        year, month = start_year, start_month
+        while (year, month) <= (end_year, end_month):
+            yield f"{year:04d}{month:02d}"
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+
+    def _augment_with_monthly_breakdown(
+        self, processed, timeline_start, timeline_end, cons_type, dlg_key, values_in_kwh
+    ):
+        """
+        Build a true per-month consumption timeline (overall and per room) by
+        querying each month individually, and merge it into ``processed``.
+
+        - ``processed["timeline"]`` is replaced with the per-month total
+          consumption (sum of all rooms) in the same raw unit as the totals.
+        - Each room in ``processed["by_room"]`` gets a ``monthly`` list holding
+          that room's consumption per month.
+        """
+        is_heating = cons_type == "HEIZUNG"
+
+        overall_timeline = []
+        by_room_monthly = {}  # room key -> {period_int: value}
+
+        for period in self._month_range(timeline_start, timeline_end):
+            try:
+                raw = self.fetch_em_data(
+                    period, period, cons_type=cons_type, dlg_key=dlg_key, values_in_kwh=values_in_kwh
+                )
+            except Exception as e:
+                logger.warning(f"Could not fetch {cons_type} data for {period}: {e}")
+                continue
+
+            table = raw.get("table") or []
+            month_total = 0.0
+            has_value = False
+
+            for room_data in table:
+                consumption = _to_number(room_data.get("consumption", 0))
+                if is_heating:
+                    consumption = int(round(consumption))
+                month_total += consumption
+                has_value = True
+
+                key = room_data.get("gerNr") or room_data.get("raumKey") or room_data.get("raum")
+                by_room_monthly.setdefault(key, {})[period] = consumption
+
+            if not has_value:
+                continue
+
+            if is_heating:
+                month_total = int(round(month_total))
+
+            overall_timeline.append(
+                {
+                    "period": f"{period[4:6]}.{period[:4]}",
+                    "period_int": period,
+                    "value": month_total,
+                }
+            )
+
+        processed["timeline"] = overall_timeline
+
+        for room in processed.get("by_room", []):
+            key = room.get("device_number") or room.get("room_key") or room.get("room_name")
+            monthly = by_room_monthly.get(key, {})
+            room["monthly"] = [
+                {
+                    "period": f"{p[4:6]}.{p[:4]}",
+                    "period_int": p,
+                    "value": monthly[p],
+                }
+                for p in sorted(monthly)
+            ]
 
     @staticmethod
     def _process_consumption_data(raw_data, consumption_type, timeline_start, timeline_end):

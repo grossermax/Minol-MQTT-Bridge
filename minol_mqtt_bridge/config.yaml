@@ -18,6 +18,8 @@ options:
   mqtt_password: "mqtt_password"
   scan_interval_hours: 12
   base_url: "https://webservices.minol.com"
+  consumption_types:
+    - HEIZUNG
   log_level: "INFO"
 schema:
   minol_email: str
@@ -28,4 +30,6 @@ schema:
   mqtt_password: str
   scan_interval_hours: int
   base_url: str
+  consumption_types:
+    - list(HEIZUNG|WARMWASSER|KALTWASSER)
   log_level: list(DEBUG|INFO|WARNING|ERROR|CRITICAL)

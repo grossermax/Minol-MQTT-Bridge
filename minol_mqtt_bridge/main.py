@@ -42,6 +42,11 @@ def load_config():
         "mqtt_password": os.environ.get("MQTT_PASSWORD"),
         "scan_interval_hours": int(os.environ.get("SCAN_INTERVAL_HOURS", 12)),
         "base_url": os.environ.get("BASE_URL"),
+        "consumption_types": [
+            t.strip()
+            for t in os.environ.get("CONSUMPTION_TYPES", "HEIZUNG").split(",")
+            if t.strip()
+        ],
         "log_level": os.environ.get("LOG_LEVEL", "INFO"),
     }
 
@@ -246,7 +251,9 @@ def run_sync():
         publish_availability(False)
         return
 
-    connector = MinolConnector(minol_email, minol_password, base_url)
+    consumption_types = config.get("consumption_types") or ["HEIZUNG"]
+
+    connector = MinolConnector(minol_email, minol_password, base_url, consumption_types=consumption_types)
 
     logger.info("Starting authentication...")
     if not connector.authenticate():
@@ -329,10 +336,7 @@ def run_sync():
 
         # Build timeline attributes
         timeline_attrs = {
-            "monthly_data": [
-                {"period": entry.get("period"), "value": entry.get("value", 0), "label": entry.get("label", "")}
-                for entry in timeline
-            ],
+            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -367,10 +371,7 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_data": [
-                {"period": entry.get("period"), "value": entry.get("value", 0), "label": entry.get("label", "")}
-                for entry in timeline
-            ],
+            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -394,10 +395,7 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_data": [
-                {"period": entry.get("period"), "value": entry.get("value", 0), "label": entry.get("label", "")}
-                for entry in timeline
-            ],
+            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -419,8 +417,6 @@ def run_sync():
         """Process room data and publish sensors with extended attributes and monthly history."""
         if category_key not in data or "by_room" not in data[category_key]:
             return
-
-        overall_timeline = data[category_key].get("timeline", [])
 
         for room in data[category_key]["by_room"]:
             r_name = room.get("room_name", "Unknown")
@@ -471,16 +467,13 @@ def run_sync():
                 "consumption_evaluated": room.get("consumption_evaluated", 0),
             }
 
-            extended_attrs["monthly_history"] = {
-                "overall_timeline": [
-                    {
-                        "period": entry.get("period"),
-                        "value": entry.get("value", 0),
-                    }
-                    for entry in overall_timeline
-                ],
-                "note": "Per-room timeline not available from API. Showing overall consumption timeline.",
-            }
+            extended_attrs["monthly_history"] = [
+                {
+                    "period": entry.get("period"),
+                    "value": entry.get("value", 0),
+                }
+                for entry in room.get("monthly", [])
+            ]
 
             published_val = val
 
