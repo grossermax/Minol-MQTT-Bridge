@@ -21,17 +21,17 @@ It uses a browser automation (Playwright) to log in securely and fetch the lates
 
 ## Configuration Options
 
-| Option                | Description                                                                                                                                                                                         | Default                               |
-|:----------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------|
-| `minol_email`         | Your login email for the Minol portal.                                                                                                                                                              | -                                     |
-| `minol_password`      | Your login password.                                                                                                                                                                                | -                                     |
-| `mqtt_host`           | Hostname of your broker. Use `core-mosquitto` for the internal add-on.                                                                                                                              | `core-mosquitto`                      |
-| `mqtt_port`           | Port of your MQTT broker.                                                                                                                                                                           | `1883`                                |
-| `mqtt_user`           | MQTT username (optional).                                                                                                                                                                           | -                                     |
-| `mqtt_password`       | MQTT password (optional).                                                                                                                                                                           | -                                     |
-| `scan_interval_hours` | How often the data should be updated (in hours).                                                                                                                                                    | `12`                                  |
-| `consumption_types` | Which consumption types to fetch. Multiple can be selected (`HEIZUNG`, `WARMWASSER`, `KALTWASSER`). Only the selected types are requested from the Minol API, which reduces the number of requests. | `HEIZUNG` |
-| `log_level`           | Logging verbosity (DEBUG, INFO, WARNING, ERROR).                                                                                                                                                    | `INFO`                                |
+| Option                | Description                                                                                                                                                                                         | Default          |
+|:----------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------|
+| `minol_email`         | Your login email for the Minol portal.                                                                                                                                                              | -                |
+| `minol_password`      | Your login password.                                                                                                                                                                                | -                |
+| `mqtt_host`           | Hostname of your broker. Use `core-mosquitto` for the internal add-on.                                                                                                                              | `core-mosquitto` |
+| `mqtt_port`           | Port of your MQTT broker.                                                                                                                                                                           | `1883`           |
+| `mqtt_user`           | MQTT username (optional).                                                                                                                                                                           | -                |
+| `mqtt_password`       | MQTT password (optional).                                                                                                                                                                           | -                |
+| `scan_interval_hours` | How often the data should be updated (in hours).                                                                                                                                                    | `12`             |
+| `consumption_types`   | Which consumption types to fetch. Multiple can be selected (`HEIZUNG`, `WARMWASSER`, `KALTWASSER`). Only the selected types are requested from the Minol API, which reduces the number of requests. | `HEIZUNG`        |
+| `log_level`           | Logging verbosity (DEBUG, INFO, WARNING, ERROR).                                                                                                                                                    | `INFO`           |
 
 ## Sensors
 

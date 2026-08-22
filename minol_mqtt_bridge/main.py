@@ -336,7 +336,7 @@ def run_sync():
 
         # Build timeline attributes
         timeline_attrs = {
-            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -371,7 +371,7 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -395,7 +395,7 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_data": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
