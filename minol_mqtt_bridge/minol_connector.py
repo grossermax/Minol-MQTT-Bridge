@@ -1,20 +1,55 @@
 """
 Minol Customer Portal API Client
 
-Handles authentication and data fetching from the Minol customer portal
-using Playwright for Azure B2C SAML authentication and requests for API calls.
+Handles authentication and data fetching from the Minol customer portal.
+
+Authentication uses a lightweight, browser-less flow implemented purely with
+``requests`` to complete the Azure AD B2C (SAML) sign-in. This keeps the
+container image tiny (no browser required), which in turn keeps Home Assistant
+backups small.
 """
 
 import json
 import logging
-import time
+import re
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from html.parser import HTMLParser
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
-from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
+
+
+class _B2CAutoPostFormParser(HTMLParser):
+    """Extract the single auto-submitting SAML form (action + hidden inputs).
+
+    Azure B2C returns an HTML page whose ``<form>`` auto-posts a ``SAMLResponse``
+    (and ``RelayState``) to the service provider's ACS URL. A browser would run
+    the inline JavaScript that submits it; here we parse the form and submit it
+    ourselves with ``requests``.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.action: Optional[str] = None
+        self.inputs: Dict[str, str] = {}
+        self._in_form = False
+
+    def handle_starttag(self, tag, attrs):
+        attr = dict(attrs)
+        if tag == "form":
+            self._in_form = True
+            self.action = attr.get("action") or self.action
+        elif tag == "input" and self._in_form:
+            name = attr.get("name")
+            if name:
+                self.inputs[name] = attr.get("value") or ""
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self._in_form = False
 
 
 def _to_number(x, default=0):
@@ -35,7 +70,7 @@ ALL_CONSUMPTION_TYPES = ("HEIZUNG", "WARMWASSER", "KALTWASSER")
 
 
 class MinolConnector:
-    """Minol customer portal API client with Playwright-based authentication."""
+    """Minol customer portal API client with requests-based authentication."""
 
     def __init__(
         self,
@@ -43,6 +78,7 @@ class MinolConnector:
         password: str,
         base_url: str = "https://webservices.minol.com",
         consumption_types: Optional[List[str]] = None,
+        saml2idp: str = "B2C-Minol-Tenant",
     ):
         """Initialize the connector with user credentials.
 
@@ -54,6 +90,8 @@ class MinolConnector:
                 (subset of ``HEIZUNG``, ``WARMWASSER``, ``KALTWASSER``). When
                 ``None`` or empty, all supported types are fetched. Restricting
                 this reduces the number of requests made against the Minol API.
+            saml2idp: The Azure B2C IdP identifier used to initiate SAML SSO.
+                Defaults to ``"B2C-Minol-Tenant"`` (Mieter/Eigentümer login).
         """
         self.email = email
         self.password = password
@@ -61,6 +99,7 @@ class MinolConnector:
         self.base_url = base_url
         self.login_url = f"{base_url}/"
         self.acs_url = f"{base_url}/saml2/sp/acs"
+        self.saml2idp = saml2idp or "B2C-Minol-Tenant"
 
         # Normalize the requested consumption types: keep only known values and
         # fall back to "all" when nothing valid was provided.
@@ -88,153 +127,201 @@ class MinolConnector:
         self._cache_duration = timedelta(hours=1)
 
     def login(self):
-        """Perform Azure B2C SAML authentication using Playwright."""
-        logger.info("Starting Playwright authentication...")
+        """Browser-less Azure AD B2C (SAML) authentication using requests only.
 
-        launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        Steps:
+          1. Load the portal monitoring URL. The portal first shows an SAP
+             logon page, so we explicitly initiate the SAML SSO to Azure B2C
+             (the same request the page's ``callTenantLogin()`` triggers) and
+             read the ``SETTINGS`` object (csrf token, transId, tenant, policy).
+          2. POST the credentials to the ``SelfAsserted`` endpoint.
+          3. GET the ``confirmed`` endpoint and follow the auto-posting SAML
+             form(s) to the service provider's ACS URL, establishing the
+             session cookies (e.g. ``MYSAPSSO2``).
+        """
+        logger.info("Starting authentication...")
 
-        with sync_playwright() as p:
-            # Prefer the lightweight "chromium-headless-shell" build. It is a
-            # fraction of the size of the full Chromium (~340 MB vs ~980 MB with
-            # the full browser) and is exactly what a headless scraper needs.
-            # The Docker image only ships this shell to keep the add-on / HA
-            # backups small. For local development (where the full Chromium may
-            # be installed instead) we transparently fall back to the default.
-            try:
-                browser = p.chromium.launch(
-                    headless=True, channel="chromium-headless-shell", args=launch_args
-                )
-            except Exception as e:
-                logger.warning(
-                    f"chromium-headless-shell not available ({e}); "
-                    f"falling back to the default Chromium build."
-                )
-                browser = p.chromium.launch(headless=True, args=launch_args)
-            context = browser.new_context()
-            page = context.new_page()
+        monitoring_url = (
+            f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/"
+            f"index.html?isMieter=true&redirect2=true"
+        )
 
-            try:
-                logger.info("Navigating to monitoring page...")
-                monitoring_url = f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true&redirect2=true"
-                page.goto(monitoring_url, wait_until="domcontentloaded")
+        resp = self.session.get(monitoring_url, allow_redirects=True)
+        resp.raise_for_status()
 
-                time.sleep(3)
-                logger.info(f"Current URL: {page.url}")
+        settings = self._extract_b2c_settings(resp.text)
+        if settings is None:
+            # The portal returned the SAP logon page (not the B2C page yet).
+            # Initiate the SAML SSO to Azure B2C exactly like the page's
+            # callTenantLogin() -> callSamlLogin("B2C-Minol-Tenant") does.
+            target_url = (
+                f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/" f"index.html?isMieter=true"
+            )
+            saml_login_url = (
+                f"{self.base_url}/minol.com~kundenportal~login~saml/"
+                f"?logonTargetUrl={quote(target_url, safe='')}"
+                f"&saml2idp={self.saml2idp}"
+            )
+            logger.debug(f"Initiating SAML SSO via {saml_login_url}")
+            resp = self.session.get(saml_login_url, allow_redirects=True)
+            resp.raise_for_status()
+            settings = self._extract_b2c_settings(resp.text)
 
-                if "minolauth.b2clogin.com" in page.url:
-                    logger.info("On Azure B2C login page")
-                else:
-                    logger.info("Checking for login redirect...")
-                    page_content = page.content()
-                    with open("current_page.html", "w", encoding="utf-8") as f:
-                        f.write(page_content)
+        if settings is None:
+            # No B2C page -> we may already hold a valid session.
+            if any(c.name == "MYSAPSSO2" for c in self.session.cookies):
+                logger.info("Already authenticated (existing session cookie present).")
+                self._authenticated = True
+                return
+            raise RuntimeError("Could not locate Azure B2C SETTINGS on the sign-in page.")
 
-                    try:
-                        page.wait_for_url("**/minolauth.b2clogin.com/**", timeout=5000)
-                    except Exception:
-                        logger.warning("No redirect to Azure B2C detected")
+        try:
+            csrf = settings["csrf"]
+            trans_id = settings["transId"]
+            hosts = settings.get("hosts", {})
+            tenant = hosts["tenant"]
+            policy = hosts["policy"]
+        except KeyError as e:
+            raise RuntimeError(f"B2C SETTINGS missing expected field: {e}") from e
+        api = settings.get("api", "CombinedSigninAndSignup")
 
-                if "minolauth.b2clogin.com" in page.url:
-                    logger.info("Filling login form...")
-                    time.sleep(2)
+        parsed = urlparse(resp.url)
+        b2c_origin = f"{parsed.scheme}://{parsed.netloc}"
 
-                    email_input = page.locator(
-                        'input[id="signInName"], input[name="signInName"], input[type="email"], input[placeholder*="Kundennummer"]'
-                    )
-                    email_input.wait_for(state="visible", timeout=10000)
-                    email_input.fill(self.email)
+        # 1) Submit credentials to the SelfAsserted endpoint.
+        self_asserted_url = f"{b2c_origin}{tenant}/SelfAsserted"
+        r_self = self.session.post(
+            self_asserted_url,
+            params={"tx": trans_id, "p": policy},
+            data={
+                "request_type": "RESPONSE",
+                "signInName": self.email,
+                "password": self.password,
+            },
+            headers={
+                "X-CSRF-TOKEN": csrf,
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": resp.url,
+            },
+        )
+        r_self.raise_for_status()
+        try:
+            status = str(r_self.json().get("status"))
+        except json.JSONDecodeError:
+            status = None
+        logger.debug(f"SelfAsserted status={status}")
+        if status not in (None, "200"):
+            raise RuntimeError(f"Credential submission failed (status={status}): {r_self.text[:200]}")
 
-                    password_input = page.locator(
-                        'input[id="password"], input[name="password"], input[type="password"]'
-                    )
-                    password_input.wait_for(state="visible", timeout=5000)
-                    password_input.fill(self.password)
+        # 2) Confirm the sign-in. B2C returns an auto-submitting HTML form that
+        #    carries the SAMLResponse. Depending on the policy this can be a
+        #    short chain of auto-posting forms (B2C -> ... -> SP ACS), so we
+        #    follow them until the service-provider session is established.
+        confirmed_url = f"{b2c_origin}{tenant}/api/{api}/confirmed"
+        r_step = self.session.get(
+            confirmed_url,
+            params={
+                "rememberMe": "false",
+                "csrf_token": csrf,
+                "tx": trans_id,
+                "p": policy,
+            },
+            headers={"Referer": resp.url},
+        )
+        r_step.raise_for_status()
+        logger.debug(
+            f"confirmed: status={r_step.status_code} "
+            f"content-type={r_step.headers.get('Content-Type')} url={r_step.url}"
+        )
 
-                    sign_in_button = page.locator('button[type="submit"], button#next')
-                    sign_in_button.click()
+        page_text = r_step.text
+        current_url = r_step.url
+        posted_saml = False
+        for hop in range(6):
+            form = _B2CAutoPostFormParser()
+            form.feed(page_text)
+            if not self._is_auto_post_form(form, page_text):
+                logger.debug(f"No further auto-post form after hop {hop} (url={current_url}).")
+                break
+            action_url = urljoin(current_url, form.action) if form.action else self.acs_url
+            has_saml = any(k in form.inputs for k in ("SAMLResponse", "SAMLRequest"))
+            logger.debug(f"Auto-posting SSO form (hop {hop + 1}) to {action_url} " f"(fields={sorted(form.inputs)})")
+            r_step = self.session.post(action_url, data=form.inputs, allow_redirects=True)
+            r_step.raise_for_status()
+            page_text = r_step.text
+            current_url = r_step.url
+            posted_saml = posted_saml or has_saml
+            if any(c.name == "MYSAPSSO2" for c in self.session.cookies):
+                break
 
-                    logger.info("Waiting for redirect...")
-                    page.wait_for_url(f"{self.base_url}/**", timeout=30000)
-                    time.sleep(2)
+        # 3) Mirror the browser flow: navigate back to the portal so the SP can
+        #    finalize its session on the target page.
+        target_monitoring_url = (
+            f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/" f"index.html?isMieter=true"
+        )
+        try:
+            self.session.get(target_monitoring_url, allow_redirects=True)
+        except requests.exceptions.RequestException as e:
+            logger.debug(f"Post-login portal GET failed (non-fatal): {e}")
 
-                    logger.info("Navigating to monitoring page...")
-                    page.goto(monitoring_url, wait_until="networkidle")
-                    time.sleep(3)
-                else:
-                    logger.info("Checking authentication status...")
+        cookie_names = sorted({c.name for c in self.session.cookies})
+        has_sso = "MYSAPSSO2" in cookie_names
+        if has_sso:
+            logger.info("MYSAPSSO2 cookie obtained")
+        else:
+            self._dump_debug("http_login_last_page.html", page_text)
+            logger.warning(
+                "MYSAPSSO2 cookie not found after HTTP login "
+                f"(posted_saml={posted_saml}, final_url={current_url}, "
+                f"cookies={cookie_names}). Saved last page to "
+                "http_login_last_page.html for diagnostics."
+            )
 
-                logger.info("Extracting cookies...")
-                cookies = context.cookies()
-
-                for cookie in cookies:
-                    self.session.cookies.set(
-                        name=cookie["name"],
-                        value=cookie["value"],
-                        domain=cookie.get("domain", ""),
-                        path=cookie.get("path", "/"),
-                        secure=cookie.get("secure", False),
-                    )
-
-                logger.info(f"Transferred {len(cookies)} cookies")
-
-                mysapsso2_present = any(c["name"] == "MYSAPSSO2" for c in cookies)
-                if mysapsso2_present:
-                    logger.info("MYSAPSSO2 cookie obtained")
-                else:
-                    logger.warning("MYSAPSSO2 cookie not found")
-
-            except Exception as e:
-                logger.error(f"Error during Playwright login: {e}")
-                raise
-            finally:
-                browser.close()
-
-        logger.info("Login successful.")
+        logger.info("HTTP login flow completed.")
         self._authenticated = True
 
-    def _get_monitoring_index(self):
-        """Access the monitoring index page."""
-        logger.info("Getting monitoring index page...")
-        url = f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true"
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-            "Accept-Language": "de-DE,de;q=0.9,en-DE;q=0.8,en;q=0.7,en-US;q=0.6",
-            "DNT": "1",
-            "Referer": f"{self.base_url}/minol.com~kundenportal~em~web/resources/monitoring/index.html?isMieter=true/",
-            "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-        }
+    @staticmethod
+    def _extract_b2c_settings(html_text: str) -> Optional[Dict]:
+        """Extract the Azure B2C ``SETTINGS`` JSON object from the sign-in page."""
+        match = re.search(r"SETTINGS\s*=\s*(\{.*?})\s*;", html_text, re.S)
+        if not match:
+            return None
         try:
-            response = self.session.get(url, headers=headers, allow_redirects=True)
-            response.raise_for_status()
-            with open("monitoring_index_page.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            logger.info(f"Monitoring index page response status code: {response.status_code}")
-            logger.info(f"Monitoring index page response cookies: {response.cookies}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error getting monitoring index page: {e}")
-            raise
+            return json.loads(match.group(1))
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse B2C SETTINGS JSON: {e}")
+            return None
 
-    def _get_monitoring_client(self):
-        """Complete the login process by accessing the monitoring client URL."""
-        logger.info("Getting monitoring client...")
-        url = f"{self.base_url}/irj/servlet/prt/portal/prtroot/pcd!3aportal_content!2fminol!2ff_PortalLayouts!2fv_monitoringClient"
+    @staticmethod
+    def _is_auto_post_form(form: "_B2CAutoPostFormParser", page_text: str) -> bool:
+        """Heuristic: is this an SSO/SAML auto-submitting form worth posting?"""
+        if not form.action and not form.inputs:
+            return False
+        sso_keys = {
+            "SAMLResponse",
+            "SAMLRequest",
+            "id_token",
+            "state",
+            "code",
+            "wa",
+            "wresult",
+        }
+        if any(k in form.inputs for k in sso_keys):
+            return True
+        if form.action and re.search(r"saml|/acs|b2clogin|SelfAsserted|authresp", form.action, re.I):
+            return True
+        # A body that auto-submits its form via JS onload is also a strong hint.
+        if form.inputs and re.search(r"onload\s*=\s*[\"'][^\"']*submit", page_text, re.I):
+            return True
+        return False
+
+    def _dump_debug(self, filename: str, text: str):
+        """Best-effort write of a debug page next to the app (never fatal)."""
         try:
-            response = self.session.get(url, allow_redirects=True)
-            response.raise_for_status()
-            with open("monitoring_page_response.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            logger.info(f"Monitoring client response status code: {response.status_code}")
-            logger.info(f"Monitoring client response cookies: {response.cookies}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error getting monitoring client: {e}")
-            raise
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            logger.debug(f"Could not write debug file {filename}: {e}")
 
     def get_user_tenants(self):
         """Fetch user tenants to extract the userNum."""
@@ -278,7 +365,14 @@ class MinolConnector:
                 logger.error("Response content saved to user_tenants_error_response.html")
             raise
 
-    def fetch_em_data(self, timeline_start, timeline_end, cons_type="HEIZUNG", dlg_key="100EH", values_in_kwh=True):
+    def fetch_em_data(
+        self,
+        timeline_start,
+        timeline_end,
+        cons_type="HEIZUNG",
+        dlg_key="100EH",
+        values_in_kwh=True,
+    ):
         """
         Fetch eMonitoring data for a specific consumption type.
 
@@ -373,7 +467,7 @@ class MinolConnector:
 
         logger.info(f"Fetching all consumption data from {timeline_start} to {timeline_end}")
 
-        consumption_data = {
+        consumption_data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "period": {"start": timeline_start, "end": timeline_end},
         }
@@ -387,13 +481,21 @@ class MinolConnector:
 
         # Only fetch the consumption types that were selected in the config to
         # reduce the number of requests against the Minol API.
-        for category, (cons_type, dlg_key, values_in_kwh) in category_config.items():
+        for category, (
+            cons_type,
+            dlg_key,
+            values_in_kwh,
+        ) in category_config.items():
             if cons_type not in self.consumption_types:
                 logger.debug(f"Skipping {cons_type} ({category}); not in enabled consumption types.")
                 continue
             try:
                 raw = self.fetch_em_data(
-                    timeline_start, timeline_end, cons_type=cons_type, dlg_key=dlg_key, values_in_kwh=values_in_kwh
+                    timeline_start,
+                    timeline_end,
+                    cons_type=cons_type,
+                    dlg_key=dlg_key,
+                    values_in_kwh=values_in_kwh,
                 )
                 consumption_data[category] = self._process_consumption_data(
                     raw, cons_type, timeline_start, timeline_end
@@ -407,14 +509,24 @@ class MinolConnector:
         # per-room monthly consumption. This is done by querying each month of
         # the billing period individually (the Minol API returns per-room
         # consumption for a single month when timelineStart == timelineEnd).
-        for category, (cons_type, dlg_key, values_in_kwh) in category_config.items():
+        for category, (
+            cons_type,
+            dlg_key,
+            values_in_kwh,
+        ) in category_config.items():
             if cons_type not in self.consumption_types:
                 continue
-            if "error" in consumption_data.get(category, {}):
+            category_data = consumption_data.get(category)
+            if not isinstance(category_data, dict) or "error" in category_data:
                 continue
             try:
                 self._augment_with_monthly_breakdown(
-                    consumption_data[category], timeline_start, timeline_end, cons_type, dlg_key, values_in_kwh
+                    category_data,
+                    timeline_start,
+                    timeline_end,
+                    cons_type,
+                    dlg_key,
+                    values_in_kwh,
                 )
             except Exception as e:
                 logger.warning(f"Could not build monthly breakdown for {category}: {e}")
@@ -435,7 +547,13 @@ class MinolConnector:
                 year += 1
 
     def _augment_with_monthly_breakdown(
-        self, processed, timeline_start, timeline_end, cons_type, dlg_key, values_in_kwh
+        self,
+        processed: Dict[str, Any],
+        timeline_start,
+        timeline_end,
+        cons_type,
+        dlg_key,
+        values_in_kwh,
     ):
         """
         Build a true per-month consumption timeline (overall and per room) by
@@ -454,7 +572,11 @@ class MinolConnector:
         for period in self._month_range(timeline_start, timeline_end):
             try:
                 raw = self.fetch_em_data(
-                    period, period, cons_type=cons_type, dlg_key=dlg_key, values_in_kwh=values_in_kwh
+                    period,
+                    period,
+                    cons_type=cons_type,
+                    dlg_key=dlg_key,
+                    values_in_kwh=values_in_kwh,
                 )
             except Exception as e:
                 logger.warning(f"Could not fetch {cons_type} data for {period}: {e}")
@@ -519,11 +641,12 @@ class MinolConnector:
         Returns:
             dict: Processed data with by_room, overall timeline, and total_consumption
         """
-        processed = {"by_room": [], "timeline": [], "total_consumption": 0.0}
+        processed = {"by_room": [], "timeline": [], "total_consumption": 0.0, "total_consumption_evaluated": 0.0}
 
         is_heating = consumption_type == "HEIZUNG"
 
         total_consumption = 0.0
+        total_consumption_evaluated = 0.0
         if "table" in raw_data and raw_data["table"]:
             for room_data in raw_data["table"]:
                 unit = room_data.get("unit", "kWh")
@@ -539,13 +662,14 @@ class MinolConnector:
                     reading = int(round(_to_number(reading)))
                     initial_reading = int(round(_to_number(initial_reading)))
 
+                consumption_evaluated = room_data.get("consumptionBew", 0)
                 room_info = {
                     "room_name": room_data.get("raum", "Unknown"),
                     "room_key": room_data.get("raumKey"),
                     "device_number": room_data.get("gerNr"),
                     "consumption": consumption,
                     "unit": unit,
-                    "consumption_evaluated": room_data.get("consumptionBew", 0),
+                    "consumption_evaluated": consumption_evaluated,
                     "evaluation_score": room_data.get("bewertung"),
                     "reading": reading,
                     "initial_reading": initial_reading,
@@ -553,11 +677,16 @@ class MinolConnector:
                 }
                 processed["by_room"].append(room_info)
                 total_consumption += _to_number(consumption)
+                # The "evaluated" value is already factor-weighted per room, so
+                # summing the per-room values yields the unit's total weighted
+                # (bewertet) consumption used for cost distribution.
+                total_consumption_evaluated += _to_number(consumption_evaluated)
 
         if is_heating:
             processed["total_consumption"] = int(round(total_consumption))
         else:
             processed["total_consumption"] = total_consumption
+        processed["total_consumption_evaluated"] = round(total_consumption_evaluated, 2)
 
         if "chart" in raw_data and raw_data["chart"]:
             for entry in raw_data["chart"]:

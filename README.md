@@ -12,7 +12,7 @@ customer portal and publishes it to MQTT for seamless integration with Home Assi
 
 ### Core Features
 
-- **Automatic Authentication**: Uses Playwright to handle complex SAML/Azure B2C authentication flow
+- **Automatic Authentication**: Browser-less Azure B2C / SAML sign-in via HTTP (pure `requests`) — no browser needed
 - **Home Assistant Auto-Discovery**: Sensors appear automatically in Home Assistant via MQTT discovery
 - **Selectable Consumption Types**: Choose which types to fetch (`HEIZUNG`, `WARMWASSER`, `KALTWASSER`) — multiple
   selections possible. Only the selected types are requested, reducing load on the Minol API.
@@ -131,7 +131,8 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 
 - `sensor.minol_heating_total` - Total heating consumption (EH / Einheiten)
     - **Attributes**: `monthly_history` (per-month consumption since year start), `din_comparison_percent`,
-      `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption`
+      `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption`,
+      `total_consumption_evaluated` (sum of the per-room factor-weighted/evaluated consumption)
 - `sensor.minol_hot_water_total` - Total hot water consumption (m³)
     - **Attributes**: `monthly_history`, `din_comparison_percent`, `last_update`
 - `sensor.minol_cold_water_total` - Total cold water consumption (m³)
@@ -173,8 +174,8 @@ All sensors are grouped under a single device: **Minol Customer Portal**
 
 ## How It Works
 
-1. **Authentication**: Uses Playwright with a lightweight headless Chromium shell to authenticate through the Minol
-   portal's Azure B2C SAML flow
+1. **Authentication**: Uses a browser-less HTTP flow (pure `requests`) to complete the Minol portal's Azure B2C SAML
+   sign-in
 2. **Session Management**: Extracts authentication cookies and uses them for subsequent API calls
 3. **Data Fetching**: Calls the Minol API to retrieve consumption data for the selected consumption types
 4. **MQTT Publishing**: Publishes data to MQTT using Home Assistant's discovery protocol
@@ -249,8 +250,7 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 
 **Solutions**:
 
-- Ensure sufficient memory is available (Playwright launches a headless Chromium shell, which still needs several
-  hundred MB of RAM at runtime)
+- Ensure sufficient memory is available (the browser-less `requests` login is very lightweight)
 - Check Docker logs for detailed error messages
 - Verify `/data/options.json` exists and is properly formatted
 - Try rebuilding the Docker image
@@ -260,10 +260,10 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 ### Architecture
 
 - **Language**: Python 3
-- **Browser Automation**: Playwright (Chromium)
-- **HTTP Client**: requests + BeautifulSoup4
+- **Authentication**: Browser-less Azure B2C SAML flow via `requests`
+- **HTTP Client**: requests
 - **MQTT Client**: paho-mqtt
-- **Base Image**: `python:3.14-slim` + Playwright Chromium headless shell
+- **Base Image**: `python:3.14-slim` (no browser)
 
 ### Data Refresh
 

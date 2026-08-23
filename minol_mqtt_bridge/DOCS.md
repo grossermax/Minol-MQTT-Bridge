@@ -3,7 +3,8 @@
 This add-on retrieves your consumption data (heating, hot water, cold water) from the Minol Customer Portal and
 publishes it to Home Assistant via MQTT.
 
-It uses a browser automation (Playwright) to log in securely and fetch the latest data available in your account.
+It logs in securely via the Minol portal's Azure B2C (SAML) sign-in and fetches the latest data available in your
+account.
 
 ## Prerequisites
 

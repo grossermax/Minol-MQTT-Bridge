@@ -43,9 +43,7 @@ def load_config():
         "scan_interval_hours": int(os.environ.get("SCAN_INTERVAL_HOURS", 12)),
         "base_url": os.environ.get("BASE_URL"),
         "consumption_types": [
-            t.strip()
-            for t in os.environ.get("CONSUMPTION_TYPES", "HEIZUNG").split(",")
-            if t.strip()
+            t.strip() for t in os.environ.get("CONSUMPTION_TYPES", "HEIZUNG").split(",") if t.strip()
         ],
         "log_level": os.environ.get("LOG_LEVEL", "INFO"),
     }
@@ -56,7 +54,10 @@ config = load_config()
 log_level_str = config.get("log_level", "INFO").upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(
-    level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", stream=sys.stdout, force=True
+    level=log_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+    force=True,
 )
 logger = logging.getLogger("MinolBridge")
 logger.info(f"Log level set to: {log_level_str}")
@@ -78,7 +79,16 @@ def connect_mqtt():
     try:
         # Last Will: if the bridge dies unexpectedly, sensors go unavailable.
         mqtt_client.will_set(AVAILABILITY_TOPIC, "offline", qos=1, retain=True)
-        mqtt_client.connect(config.get("mqtt_host", "localhost"), int(config.get("mqtt_port", 1883)), 60)
+        mqtt_host_raw = config.get("mqtt_host", "localhost")
+        mqtt_host = mqtt_host_raw if isinstance(mqtt_host_raw, str) and mqtt_host_raw else "localhost"
+        mqtt_port_raw = config.get("mqtt_port", 1883)
+        if mqtt_port_raw is None:
+            mqtt_port = 1883
+        elif isinstance(mqtt_port_raw, (int, float, str)):
+            mqtt_port = int(mqtt_port_raw)
+        else:
+            raise TypeError("Invalid mqtt_port type; expected int-compatible value.")
+        mqtt_client.connect(host=mqtt_host, port=mqtt_port, keepalive=60)
         mqtt_client.loop_start()
         logger.info("Connected to MQTT Broker")
     except Exception as e:
@@ -103,7 +113,7 @@ def publish_discovery_config(
 
     payload = {
         "name": name,
-        "unique_id": unique_id_override if unique_id_override else f"minol_{unique_id}",
+        "unique_id": (unique_id_override if unique_id_override else f"minol_{unique_id}"),
         "state_topic": f"minol/{unique_id}/state",
         "unit_of_measurement": unit,
         "state_class": state_class,
@@ -251,9 +261,22 @@ def run_sync():
         publish_availability(False)
         return
 
-    consumption_types = config.get("consumption_types") or ["HEIZUNG"]
+    raw_consumption_types = config.get("consumption_types")
+    if isinstance(raw_consumption_types, list):
+        consumption_types = [
+            entry.strip() for entry in raw_consumption_types if isinstance(entry, str) and entry.strip()
+        ]
+        if not consumption_types:
+            consumption_types = ["HEIZUNG"]
+    else:
+        consumption_types = ["HEIZUNG"]
 
-    connector = MinolConnector(minol_email, minol_password, base_url, consumption_types=consumption_types)
+    connector = MinolConnector(
+        minol_email,
+        minol_password,
+        base_url,
+        consumption_types=consumption_types,
+    )
 
     logger.info("Starting authentication...")
     if not connector.authenticate():
@@ -293,7 +316,8 @@ def run_sync():
             "move_in_date": user_info.get("einzugMieter", ""),
         }
 
-        # I don't want to publish personal customer info to MQTT for privacy reasons, so this is commented out.
+        # I don't want to publish personal customer info to MQTT for privacy
+        # reasons, so this is commented out.
 
         # publish_discovery_config(
         #     "info",
@@ -305,7 +329,9 @@ def run_sync():
         #     state_class=None,
         #     attributes_topic="minol/customer_info/attributes"
         # )
-        # publish_state("customer_info", customer_attrs.get("customer_number", "N/A"))
+        # publish_state(
+        #     "customer_info", customer_attrs.get("customer_number", "N/A")
+        # )
         # publish_attributes("customer_info", customer_attrs)
 
     def calculate_din_comparison(timeline):
@@ -362,6 +388,7 @@ def run_sync():
         timeline_attrs["period_end"] = f"{heating_total_year}-12-31"
         timeline_attrs["correction_detected"] = heating_total_corrected
         timeline_attrs["total_consumption"] = val
+        timeline_attrs["total_consumption_evaluated"] = data["heating"].get("total_consumption_evaluated", 0)
         publish_state(heating_total_uid, published_heating_total)
         publish_attributes(heating_total_uid, timeline_attrs)
 
@@ -465,15 +492,14 @@ def run_sync():
                 "evaluation_factor": factor,
                 "unit_raw": room.get("unit", ""),
                 "consumption_evaluated": room.get("consumption_evaluated", 0),
+                "monthly_history": [
+                    {
+                        "period": entry.get("period"),
+                        "value": entry.get("value", 0),
+                    }
+                    for entry in room.get("monthly", [])
+                ],
             }
-
-            extended_attrs["monthly_history"] = [
-                {
-                    "period": entry.get("period"),
-                    "value": entry.get("value", 0),
-                }
-                for entry in room.get("monthly", [])
-            ]
 
             published_val = val
 
@@ -507,9 +533,27 @@ def run_sync():
             publish_state(uid, published_val)
             publish_attributes(uid, extended_attrs)
 
-    process_rooms_extended("heating", "Heating", "EH", "mdi:radiator", None)
-    process_rooms_extended("hot_water", "Hot Water", "m³", "mdi:water-thermometer", "water")
-    process_rooms_extended("cold_water", "Cold Water", "m³", "mdi:water-pump", "water")
+    process_rooms_extended(
+        category_key="heating",
+        category_name="Heating",
+        unit="EH",
+        icon="mdi:radiator",
+        device_class=None,
+    )
+    process_rooms_extended(
+        category_key="hot_water",
+        category_name="Hot Water",
+        unit="m³",
+        icon="mdi:water-thermometer",
+        device_class="water",
+    )
+    process_rooms_extended(
+        category_key="cold_water",
+        category_name="Cold Water",
+        unit="m³",
+        icon="mdi:water-pump",
+        device_class="water",
+    )
 
     def publish_din_comparison(category_key, category_name, unit):
         """Publish dedicated DIN comparison sensor."""
@@ -524,12 +568,12 @@ def run_sync():
             sensor_name = f"Minol {category_name} DIN Comparison"
 
             publish_discovery_config(
-                category_key,
-                uid,
-                sensor_name,
-                "%",
-                "mdi:chart-line",
-                None,
+                sensor_type=category_key,
+                unique_id=uid,
+                name=sensor_name,
+                unit="%",
+                icon="mdi:chart-line",
+                device_class=None,
                 state_class="measurement",
                 attributes_topic=f"minol/{uid}/attributes",
             )
@@ -542,9 +586,9 @@ def run_sync():
             }
             publish_attributes(uid, attrs)
 
-    publish_din_comparison("heating", "Heating", "EH")
-    publish_din_comparison("hot_water", "Hot Water", "m³")
-    publish_din_comparison("cold_water", "Cold Water", "m³")
+    publish_din_comparison(category_key="heating", category_name="Heating", unit="EH")
+    publish_din_comparison(category_key="hot_water", category_name="Hot Water", unit="m³")
+    publish_din_comparison(category_key="cold_water", category_name="Cold Water", unit="m³")
 
     save_state_store(state_store)
     publish_availability(True)
@@ -564,7 +608,10 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-        interval_raw = config.get("scan_interval_hours")
-        interval = int(interval_raw) if interval_raw is not None else 12
+        interval_raw = config.get("scan_interval_hours", 12)
+        if isinstance(interval_raw, (int, float, str)):
+            interval = int(interval_raw)
+        else:
+            raise TypeError("Invalid scan_interval_hours type; expected int-compatible value.")
         logger.info(f"Sleeping for {interval} hours...")
         time.sleep(interval * 3600)
