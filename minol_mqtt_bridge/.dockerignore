@@ -1,0 +1,25 @@
+# Keep the build context (and therefore the image) small
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# Local dev / secrets
+.env
+*.env
+
+# Runtime artifacts written by the connector during debugging
+current_page.html
+monitoring_index_page.html
+monitoring_page_response.html
+user_tenants_error_response.html
+em_data_error_response.html
+minol_state.json
+
+# Docs / meta not needed inside the image
+DOCS.md
+icon.png
+
