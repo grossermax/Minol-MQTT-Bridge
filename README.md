@@ -173,8 +173,8 @@ All sensors are grouped under a single device: **Minol Customer Portal**
 
 ## How It Works
 
-1. **Authentication**: Uses Playwright (headless Chromium) to authenticate through the Minol portal's Azure B2C SAML
-   flow
+1. **Authentication**: Uses Playwright with a lightweight headless Chromium shell to authenticate through the Minol
+   portal's Azure B2C SAML flow
 2. **Session Management**: Extracts authentication cookies and uses them for subsequent API calls
 3. **Data Fetching**: Calls the Minol API to retrieve consumption data for the selected consumption types
 4. **MQTT Publishing**: Publishes data to MQTT using Home Assistant's discovery protocol
@@ -249,7 +249,8 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 
 **Solutions**:
 
-- Ensure sufficient memory is available (Playwright requires ~1GB)
+- Ensure sufficient memory is available (Playwright launches a headless Chromium shell, which still needs several
+  hundred MB of RAM at runtime)
 - Check Docker logs for detailed error messages
 - Verify `/data/options.json` exists and is properly formatted
 - Try rebuilding the Docker image
@@ -262,7 +263,7 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 - **Browser Automation**: Playwright (Chromium)
 - **HTTP Client**: requests + BeautifulSoup4
 - **MQTT Client**: paho-mqtt
-- **Base Image**: `mcr.microsoft.com/playwright/python:v1.56.0-jammy-amd64`
+- **Base Image**: `python:3.14-slim` + Playwright Chromium headless shell
 
 ### Data Refresh
 

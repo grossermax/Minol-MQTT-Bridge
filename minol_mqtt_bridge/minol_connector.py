@@ -91,10 +91,25 @@ class MinolConnector:
         """Perform Azure B2C SAML authentication using Playwright."""
         logger.info("Starting Playwright authentication...")
 
+        launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-            )
+            # Prefer the lightweight "chromium-headless-shell" build. It is a
+            # fraction of the size of the full Chromium (~340 MB vs ~980 MB with
+            # the full browser) and is exactly what a headless scraper needs.
+            # The Docker image only ships this shell to keep the add-on / HA
+            # backups small. For local development (where the full Chromium may
+            # be installed instead) we transparently fall back to the default.
+            try:
+                browser = p.chromium.launch(
+                    headless=True, channel="chromium-headless-shell", args=launch_args
+                )
+            except Exception as e:
+                logger.warning(
+                    f"chromium-headless-shell not available ({e}); "
+                    f"falling back to the default Chromium build."
+                )
+                browser = p.chromium.launch(headless=True, args=launch_args)
             context = browser.new_context()
             page = context.new_page()
 
