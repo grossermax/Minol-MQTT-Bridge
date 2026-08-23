@@ -4,7 +4,7 @@
   "include-component-in-tag": false,
   "packages": {
     ".": {
-      "changelog-path": "minol_mqtt_bridge/CHANGELOG.md",
+      "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
           "type": "generic",
@@ -14,4 +14,3 @@
     }
   }
 }
-

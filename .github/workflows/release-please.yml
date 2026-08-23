@@ -13,12 +13,38 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       # Creates/updates a "release PR" that collects all Conventional Commits,
-      # bumps the version in config.yaml and regenerates
-      # minol_mqtt_bridge/CHANGELOG.md. Merging that PR publishes a GitHub
-      # Release (which Home Assistant can surface as the add-on changelog).
+      # bumps the version in config.yaml and regenerates the full CHANGELOG.md
+      # in the repository root. Merging that PR publishes a GitHub Release.
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Home Assistant surfaces minol_mqtt_bridge/CHANGELOG.md as the add-on
+      # changelog and always shows it in full. To only display the newest
+      # release there, we trim the root CHANGELOG.md down to its latest version
+      # block (everything up to the second "## [" heading) and commit it into
+      # the add-on folder. The full history stays in the root CHANGELOG.md.
+      - name: Trim add-on changelog for Home Assistant
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+          awk '/^## \[/ { count++; if (count == 2) exit } { print }' \
+            CHANGELOG.md > minol_mqtt_bridge/CHANGELOG.md
+          # Drop trailing blank lines for a tidy file.
+          sed -i -e :a -e '/^\n*$/{$d;N;ba}' minol_mqtt_bridge/CHANGELOG.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add minol_mqtt_bridge/CHANGELOG.md
+          if git diff --staged --quiet; then
+            echo "Add-on changelog already up to date."
+          else
+            git commit -m "chore: update add-on changelog to latest release"
+            git push origin main
+          fi
 
