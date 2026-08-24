@@ -395,8 +395,6 @@ def run_sync():
         timeline_attrs["correction_detected"] = heating_total_corrected
         timeline_attrs["total_consumption"] = val
         timeline_attrs["total_consumption_evaluated"] = data["heating"].get("total_consumption_evaluated", 0)
-        by_room = data["heating"].get("by_room", [])
-        timeline_attrs["unit_raw"] = by_room[0].get("unit", "EH") if by_room else "EH"
         publish_state(heating_total_uid, published_heating_total)
         publish_attributes(heating_total_uid, timeline_attrs)
 
@@ -504,7 +502,6 @@ def run_sync():
                 "initial_reading": initial,
                 "consumption": val,
                 "evaluation_factor": factor,
-                "unit_raw": room.get("unit", ""),
                 "consumption_evaluated": room.get("consumption_evaluated", 0),
                 "monthly_history": [
                     {
