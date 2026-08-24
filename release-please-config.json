@@ -13,7 +13,7 @@
     { "type": "refactor", "section": "Code Refactoring" },
     { "type": "perf", "section": "Performance Improvements" },
     { "type": "test", "section": "Tests" },
-    { "type": "style", "section": "Styles" },
+    { "type": "style", "section": "Styles" }
   ],
   "packages": {
     ".": {
