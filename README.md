@@ -299,11 +299,11 @@ Common types:
 |------------|-------------------------------------------------------------|----------------|
 | `feat:`    | A new feature                                               | minor bump     |
 | `fix:`     | A bug fix                                                   | patch bump     |
-| `chore:`   | Tooling, dependencies, maintenance (no user-facing change)  | no bump        |
-| `docs:`    | Documentation-only changes                                  | no bump        |
-| `refactor:`| Code change that neither fixes a bug nor adds a feature     | no bump        |
-| `test:`    | Adding or updating tests                                    | no bump        |
-| `ci:`      | CI/CD configuration changes                                 | no bump        |
+| `chore:`   | Tooling, dependencies, maintenance (no user-facing change)  | patch bump     |
+| `docs:`    | Documentation-only changes                                  | patch bump     |
+| `refactor:`| Code change that neither fixes a bug nor adds a feature     | patch bump     |
+| `test:`    | Adding or updating tests                                    | patch bump     |
+| `ci:`      | CI/CD configuration changes                                 | patch bump     |
 
 Examples:
 
@@ -312,6 +312,12 @@ feat: add support for KALTWASSER consumption type
 fix: handle empty response from Minol API
 chore: bump requests to 2.34.2
 ```
+
+> **Every change ships a new version**: This is a private, single-user add-on, so **every** Conventional Commit type
+> triggers at least a version bump and appears in the changelog — that way every small change reliably surfaces as an
+> update in Home Assistant. `feat:` → **minor**, everything else (`fix:`, `chore:`, `docs:`, `refactor:`, `test:`,
+> `ci:`, …) → **patch**. This is release-please's default versioning; all commit types are additionally made visible in
+> the changelog via `changelog-sections` in `release-please-config.json`.
 
 > **Breaking changes**: Add a `!` after the type (e.g. `feat!: ...`) or a `BREAKING CHANGE:` footer to trigger a major
 > version bump.
