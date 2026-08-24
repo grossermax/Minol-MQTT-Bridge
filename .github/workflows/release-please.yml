@@ -29,11 +29,25 @@ jobs:
       # release there, we trim the root CHANGELOG.md down to its latest version
       # block (everything up to the second "## [" heading) and commit it into
       # the add-on folder. The full history stays in the root CHANGELOG.md.
-      - name: Trim add-on changelog for Home Assistant
-        if: ${{ steps.release.outputs.release_created }}
+      #
+      # `main` is a protected branch, so we cannot push there directly. Instead
+      # we commit the trimmed add-on changelog onto the open release PR branch
+      # that release-please maintains. When that PR is merged, the file lands on
+      # `main` through the regular (protection-compliant) pull request flow.
+      - name: Sync add-on changelog on release PR branch
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          # Pass the raw PR JSON string through; parsing happens at runtime with
+          # jq. Using fromJSON() here would fail template evaluation on runs
+          # where no release PR exists (empty string -> invalid JSON).
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
         run: |
           set -euo pipefail
-          git pull --ff-only origin main
+          RELEASE_PR_BRANCH="$(printf '%s' "$RELEASE_PR" | jq -r '.headBranchName')"
+          git fetch origin "$RELEASE_PR_BRANCH"
+          git checkout "$RELEASE_PR_BRANCH"
+          # release-please has already regenerated the full root CHANGELOG.md on
+          # this branch; trim it to just the newest version block for the add-on.
           awk '/^## \[/ { count++; if (count == 2) exit } { print }' \
             CHANGELOG.md > minol_mqtt_bridge/CHANGELOG.md
           # Drop trailing blank lines for a tidy file.
@@ -44,7 +58,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "Add-on changelog already up to date."
           else
-            git commit -m "chore: update add-on changelog to latest release"
-            git push origin main
+            git commit -m "chore: sync add-on changelog for Home Assistant"
+            git push origin "HEAD:$RELEASE_PR_BRANCH"
           fi
 
