@@ -373,11 +373,11 @@ def run_sync():
             "last_update": data.get("timestamp", ""),
         }
 
-        heating_total_uid = "heizkostenverteiler_minol_total"
+        heating_total_uid = "heizkostenverteiler_total"
         publish_discovery_config(
             "heating",
             heating_total_uid,
-            "Minol Heating Total",
+            "Heizkostenverteiler Total",
             "EH",
             "mdi:sigma",
             None,
@@ -395,6 +395,8 @@ def run_sync():
         timeline_attrs["correction_detected"] = heating_total_corrected
         timeline_attrs["total_consumption"] = val
         timeline_attrs["total_consumption_evaluated"] = data["heating"].get("total_consumption_evaluated", 0)
+        by_room = data["heating"].get("by_room", [])
+        timeline_attrs["unit_raw"] = by_room[0].get("unit", "EH") if by_room else "EH"
         publish_state(heating_total_uid, published_heating_total)
         publish_attributes(heating_total_uid, timeline_attrs)
 
@@ -466,13 +468,13 @@ def run_sync():
             safe_device = "".join(c for c in str(device_num) if c.isalnum())
 
             # For heating (heat cost allocators) use a custom identifier scheme:
-            #   <room>_heizkostenverteiler_minol_<device_id>
+            #   <room>_heizkostenverteiler_<device_id>
             # This drives the unique_id, MQTT topics and the entity_id.
             if category_key == "heating":
                 if safe_device:
-                    uid = f"{safe_room}_heizkostenverteiler_minol_{safe_device}".lower()
+                    uid = f"{safe_room}_heizkostenverteiler_{safe_device}".lower()
                 else:
-                    uid = f"{safe_room}_heizkostenverteiler_minol".lower()
+                    uid = f"{safe_room}_heizkostenverteiler".lower()
                 custom_object_id = uid
                 custom_unique_id = uid
             else:
@@ -482,8 +484,14 @@ def run_sync():
 
             val = room.get("consumption", 0)
 
-            device_suffix = f" ({device_num})" if device_num else ""
-            sensor_name = f"Minol {r_name} {category_name}{device_suffix}"
+            device_suffix = f"({device_num})" if device_num else ""
+            if category_key == "heating":
+                # Clean, readable friendly name without the "Minol" prefix.
+                # Use safe_room so umlauts are transliterated (e.g. "Küche" ->
+                # "kueche") and capitalize it (e.g. "Kueche").
+                sensor_name = f"{safe_room.capitalize()} Heizkostenverteiler {device_suffix}"
+            else:
+                sensor_name = f"Minol {safe_room.capitalize()} {category_name} {device_suffix}"
 
             reading = room.get("reading", 0)
             initial = room.get("initial_reading", 0)
