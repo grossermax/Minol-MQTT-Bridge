@@ -263,7 +263,7 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 - **Authentication**: Browser-less Azure B2C SAML flow via `requests`
 - **HTTP Client**: requests
 - **MQTT Client**: paho-mqtt
-- **Base Image**: `python:3.14-slim` (no browser)
+- **Base Image**: `python:3.14-alpine` (no browser)
 
 ### Data Refresh
 
@@ -283,8 +283,38 @@ mosquitto_sub -h localhost -u mqtt_user -P mqtt_password -t "homeassistant/senso
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to
-discuss what you would like to change.
+### Commit Messages
+
+This project **requires** [Conventional Commits](https://www.conventionalcommits.org/). Every commit message must start
+with the correct type prefix, because release-please derives the next version and the changelog directly from these
+prefixes:
+
+```
+<type>: <short description>
+```
+
+Common types:
+
+| Prefix     | When to use it                                              | Version impact |
+|------------|-------------------------------------------------------------|----------------|
+| `feat:`    | A new feature                                               | minor bump     |
+| `fix:`     | A bug fix                                                   | patch bump     |
+| `chore:`   | Tooling, dependencies, maintenance (no user-facing change)  | no bump        |
+| `docs:`    | Documentation-only changes                                  | no bump        |
+| `refactor:`| Code change that neither fixes a bug nor adds a feature     | no bump        |
+| `test:`    | Adding or updating tests                                    | no bump        |
+| `ci:`      | CI/CD configuration changes                                 | no bump        |
+
+Examples:
+
+```
+feat: add support for KALTWASSER consumption type
+fix: handle empty response from Minol API
+chore: bump requests to 2.34.2
+```
+
+> **Breaking changes**: Add a `!` after the type (e.g. `feat!: ...`) or a `BREAKING CHANGE:` footer to trigger a major
+> version bump.
 
 ### Development Setup
 
@@ -297,8 +327,8 @@ cd Minol-MQTT-Bridge
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install -r minol_mqtt_bridge/requirements.txt
+# Install development dependencies (includes runtime deps + tooling like black)
+pip install -r minol_mqtt_bridge/requirements-dev.txt
 
 # Run locally
 export MINOL_EMAIL="your_email"
@@ -310,10 +340,24 @@ export CONSUMPTION_TYPES="HEIZUNG,WARMWASSER,KALTWASSER"
 python minol_mqtt_bridge/main.py
 ```
 
-## Support
+> **Dependency files**:
+> - `minol_mqtt_bridge/requirements.txt` — runtime dependencies only. These are the packages installed into the
+>   add-on Docker image, so keep this list as lean as possible to keep the image (and Home Assistant backups) small.
+> - `minol_mqtt_bridge/requirements-dev.txt` — development-only tooling (e.g. `black`). It pulls in `requirements.txt`
+>   and adds the dev tools on top. This file is **not** installed into the add-on image. Use it for local development.
 
-- **Issues**: [GitHub Issues](https://github.com/Gr4ph1xZ/Minol-MQTT-Bridge/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Gr4ph1xZ/Minol-MQTT-Bridge/discussions)
+### Releasing a New Version
+
+Versioning and changelogs are automated with [release-please](https://github.com/googleapis/release-please) based on
+[Conventional Commits](https://www.conventionalcommits.org/):
+
+1. Write commits using the Conventional Commits format (e.g. `feat: ...`, `fix: ...`, `chore: ...`) and merge them
+   into `main`.
+2. On each merge to `main`, release-please automatically opens (or updates) a **release PR**. This PR bumps the add-on
+   version in `minol_mqtt_bridge/config.yaml` and updates the changelog.
+3. When you are ready to publish, simply **merge that release PR**. No manual version bumping is required.
+4. After the merge, `minol_mqtt_bridge/CHANGELOG.md` contains **only the changes of that version bump** (the entries
+   accumulated since the previous release), and a matching release/tag is created for the new add-on version.
 
 ## Disclaimer
 
