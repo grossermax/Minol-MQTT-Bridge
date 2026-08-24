@@ -129,7 +129,7 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 
 #### Total Consumption Sensors
 
-- `sensor.minol_heating_total` - Total heating consumption (EH / Einheiten)
+- `sensor.heizkostenverteiler_total` - Total heating consumption (EH / Einheiten)
     - **Attributes**: `monthly_history` (per-month consumption since year start), `din_comparison_percent`,
       `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption`,
       `total_consumption_evaluated` (sum of the per-room factor-weighted/evaluated consumption)
@@ -142,11 +142,11 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 
 #### Per-Device/Room Sensors
 
-- **Heating** (heat cost allocators) use a dedicated naming scheme without the `minol_` prefix:
-    - `sensor.<room>_heizkostenverteiler_minol_<device_id>` - One sensor per device
+- **Heating** (heat cost allocators) use a dedicated naming scheme without the `minol` term:
+    - `sensor.<room>_heizkostenverteiler_<device_id>` - One sensor per device
     - **Examples**:
-        - `sensor.wohnzimmer_heizkostenverteiler_minol_xxxxxxxxxx`
-        - `sensor.schlafzimmer_heizkostenverteiler_minol_yyyyyyyyyy`
+        - `sensor.wohnzimmer_heizkostenverteiler_xxxxxxxxxx`
+        - `sensor.schlafzimmer_heizkostenverteiler_yyyyyyyyyy`
 - **Hot/Cold water** use the standard scheme:
     - `sensor.minol_<type>_<room>_<device_id>` (e.g. `sensor.minol_hot_water_bad_zzzzzzzzzz`)
 - **Attributes** (per room):
@@ -155,7 +155,9 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
     - `current_reading`: Current meter reading
     - `initial_reading`: Starting meter reading
     - `consumption`: Consumption in the current billing period
+    - `consumption_evaluated`: Consumption multiplied by the evaluation factor
     - `evaluation_factor`: Conversion/evaluation factor
+    - `unit_raw`: Raw unit (EH for heating, m³ for water)
     - `monthly_history`: This room's consumption per month since year start
     - `period_start` / `period_end`: Billing period (heating only)
     - `correction_detected`: Set when a retroactive downward correction was detected (heating only)
