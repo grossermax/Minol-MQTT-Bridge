@@ -363,6 +363,10 @@ def run_sync():
 
     if "heating" in data and "total_consumption" in data["heating"]:
         val = data["heating"]["total_consumption"]
+        # The sensor state exposes the evaluated (factor-weighted) consumption so
+        # that Home Assistant can build monthly/yearly statistics without an extra
+        # template sensor. The raw consumption stays available via attributes.
+        val_evaluated = data["heating"].get("total_consumption_evaluated", val)
         timeline = data["heating"].get("timeline", [])
         din_comparison = calculate_din_comparison(timeline)
 
@@ -388,13 +392,13 @@ def run_sync():
         )
         heating_total_year = date.today().year
         published_heating_total, heating_total_corrected = apply_reset_protection(
-            heating_total_uid, val, heating_total_year
+            heating_total_uid, val_evaluated, heating_total_year
         )
         timeline_attrs["period_start"] = f"{heating_total_year}-01-01"
         timeline_attrs["period_end"] = f"{heating_total_year}-12-31"
         timeline_attrs["correction_detected"] = heating_total_corrected
         timeline_attrs["total_consumption"] = val
-        timeline_attrs["total_consumption_evaluated"] = data["heating"].get("total_consumption_evaluated", 0)
+        timeline_attrs["total_consumption_evaluated"] = val_evaluated
         publish_state(heating_total_uid, published_heating_total)
         publish_attributes(heating_total_uid, timeline_attrs)
 
@@ -481,6 +485,7 @@ def run_sync():
                 custom_unique_id = None
 
             val = room.get("consumption", 0)
+            val_evaluated = room.get("consumption_evaluated", 0)
 
             device_suffix = f"({device_num})" if device_num else ""
             if category_key == "heating":
@@ -502,7 +507,7 @@ def run_sync():
                 "initial_reading": initial,
                 "consumption": val,
                 "evaluation_factor": factor,
-                "consumption_evaluated": room.get("consumption_evaluated", 0),
+                "consumption_evaluated": val_evaluated,
                 "monthly_history": [
                     {
                         "period": entry.get("period"),
@@ -524,7 +529,13 @@ def run_sync():
                 extended_attrs["period_end"] = f"{billing_year}-12-31"
                 extended_attrs["consumption"] = period_consumption
 
-                published_val, correction_detected = apply_reset_protection(uid, val, billing_year, factor=factor)
+                # The sensor state exposes the evaluated (factor-weighted)
+                # consumption so Home Assistant can build long-term statistics
+                # without an extra template sensor. The raw consumption stays
+                # available via the "consumption" attribute above.
+                published_val, correction_detected = apply_reset_protection(
+                    uid, val_evaluated, billing_year, factor=factor
+                )
                 # The true (possibly corrected/lower) reading stays visible via
                 # consumption above, even when the state is held.
                 extended_attrs["correction_detected"] = correction_detected
