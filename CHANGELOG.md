@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/grossermax/Minol-MQTT-Bridge/compare/v1.1.1...v1.2.0) (2026-08-24)
+
+
+### Features
+
+* implement browser-less Azure AD B2C authentication using requests and remove Playwright ([944ce39](https://github.com/grossermax/Minol-MQTT-Bridge/commit/944ce399eca357ea53b4ddf79860668a158d8bf4))
+* implement browser-less Azure AD B2C authentication using requests; remove Playwright dependency and update documentation ([dfacc3a](https://github.com/grossermax/Minol-MQTT-Bridge/commit/dfacc3addee2e725e7aff0a951654367d19b8f9a))
+
 ## [1.1.1] - 2026-08-23
 
 ### Changed
