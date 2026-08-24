@@ -130,8 +130,10 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 #### Total Consumption Sensors
 
 - `sensor.heizkostenverteiler_total` - Total heating consumption (EH / Einheiten)
+    - **State**: the evaluated (factor-weighted) consumption (`total_consumption_evaluated`), so Home Assistant can
+      build monthly/yearly statistics and cross-room comparisons without an extra template sensor
     - **Attributes**: `monthly_history` (per-month consumption since year start), `din_comparison_percent`,
-      `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption`,
+      `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption` (raw, unweighted sum),
       `total_consumption_evaluated` (sum of the per-room factor-weighted/evaluated consumption)
 - `sensor.minol_hot_water_total` - Total hot water consumption (m³)
     - **Attributes**: `monthly_history`, `din_comparison_percent`, `last_update`
@@ -149,12 +151,14 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
         - `sensor.schlafzimmer_heizkostenverteiler_yyyyyyyyyy`
 - **Hot/Cold water** use the standard scheme:
     - `sensor.minol_<type>_<room>_<device_id>` (e.g. `sensor.minol_hot_water_bad_zzzzzzzzzz`)
+- **State** (heating rooms): the evaluated (factor-weighted) consumption (`consumption_evaluated`), so Home Assistant
+  can build long-term statistics and compare/aggregate rooms without an extra template sensor
 - **Attributes** (per room):
     - `room_name`: Room name
     - `device_number`: Meter device number
     - `current_reading`: Current meter reading
     - `initial_reading`: Starting meter reading
-    - `consumption`: Consumption in the current billing period
+    - `consumption`: Consumption in the current billing period (raw, unweighted)
     - `consumption_evaluated`: Consumption multiplied by the evaluation factor
     - `evaluation_factor`: Conversion/evaluation factor
     - `monthly_history`: This room's consumption per month since year start
@@ -296,15 +300,15 @@ prefixes:
 
 Common types:
 
-| Prefix     | When to use it                                              | Version impact |
-|------------|-------------------------------------------------------------|----------------|
-| `feat:`    | A new feature                                               | minor bump     |
-| `fix:`     | A bug fix                                                   | patch bump     |
-| `chore:`   | Tooling, dependencies, maintenance (no user-facing change)  | patch bump     |
-| `docs:`    | Documentation-only changes                                  | patch bump     |
-| `refactor:`| Code change that neither fixes a bug nor adds a feature     | patch bump     |
-| `test:`    | Adding or updating tests                                    | patch bump     |
-| `ci:`      | CI/CD configuration changes                                 | patch bump     |
+| Prefix      | When to use it                                             | Version impact |
+|-------------|------------------------------------------------------------|----------------|
+| `feat:`     | A new feature                                              | minor bump     |
+| `fix:`      | A bug fix                                                  | patch bump     |
+| `chore:`    | Tooling, dependencies, maintenance (no user-facing change) | patch bump     |
+| `docs:`     | Documentation-only changes                                 | patch bump     |
+| `refactor:` | Code change that neither fixes a bug nor adds a feature    | patch bump     |
+| `test:`     | Adding or updating tests                                   | patch bump     |
+| `ci:`       | CI/CD configuration changes                                | patch bump     |
 
 Examples:
 
@@ -358,8 +362,8 @@ python minol_mqtt_bridge/main.py
 Versioning and changelogs are automated with [release-please](https://github.com/googleapis/release-please) based on
 [Conventional Commits](https://www.conventionalcommits.org/):
 
-1. Write commits using the Conventional Commits format (e.g. `feat: ...`, `fix: ...`, `chore: ...`) and merge them
-   into `main`.
+1. Write commits using the Conventional Commits format (e.g. `feat: ...`, `fix: ...`, `chore: ...`) and merge them into
+   `main`.
 2. On each merge to `main`, release-please automatically opens (or updates) a **release PR**. This PR bumps the add-on
    version in `minol_mqtt_bridge/config.yaml` and updates the changelog.
 3. When you are ready to publish, simply **merge that release PR**. No manual version bumping is required.
