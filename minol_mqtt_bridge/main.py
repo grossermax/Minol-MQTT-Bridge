@@ -78,7 +78,7 @@ def connect_mqtt():
     """Connect to the MQTT broker."""
     try:
         # Last Will: if the bridge dies unexpectedly, sensors go unavailable.
-        mqtt_client.will_set(AVAILABILITY_TOPIC, "offline", qos=1, retain=True)
+        mqtt_client.will_set(topic=AVAILABILITY_TOPIC, payload="offline", qos=1, retain=True)
         mqtt_host_raw = config.get("mqtt_host", "localhost")
         mqtt_host = mqtt_host_raw if isinstance(mqtt_host_raw, str) and mqtt_host_raw else "localhost"
         mqtt_port_raw = config.get("mqtt_port", 1883)
