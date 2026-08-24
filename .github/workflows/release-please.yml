@@ -37,9 +37,13 @@ jobs:
       - name: Sync add-on changelog on release PR branch
         if: ${{ steps.release.outputs.pr }}
         env:
-          RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          # Pass the raw PR JSON string through; parsing happens at runtime with
+          # jq. Using fromJSON() here would fail template evaluation on runs
+          # where no release PR exists (empty string -> invalid JSON).
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
         run: |
           set -euo pipefail
+          RELEASE_PR_BRANCH="$(printf '%s' "$RELEASE_PR" | jq -r '.headBranchName')"
           git fetch origin "$RELEASE_PR_BRANCH"
           git checkout "$RELEASE_PR_BRANCH"
           # release-please has already regenerated the full root CHANGELOG.md on
