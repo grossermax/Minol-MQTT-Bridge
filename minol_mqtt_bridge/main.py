@@ -6,7 +6,6 @@ import time
 from datetime import date
 
 import paho.mqtt.client as mqtt
-from dotenv import load_dotenv
 
 from minol_connector import MinolConnector
 
@@ -32,7 +31,14 @@ def load_config():
             return json.load(f)
 
     # Local development: load .env before reading environment variables.
-    load_dotenv()
+    # `python-dotenv` is a development-only dependency and is not shipped in the
+    # add-on image, so importing it is optional and best-effort.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ModuleNotFoundError:
+        pass
     return {
         "minol_email": os.environ.get("MINOL_EMAIL"),
         "minol_password": os.environ.get("MINOL_PASSWORD"),

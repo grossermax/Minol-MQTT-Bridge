@@ -23,3 +23,6 @@ minol_state.json
 DOCS.md
 icon.png
 
+# Dev-only dependency list (never installed into the image)
+requirements-dev.txt
+CHANGELOG.md
