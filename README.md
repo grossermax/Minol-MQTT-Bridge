@@ -157,7 +157,6 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
     - `consumption`: Consumption in the current billing period
     - `consumption_evaluated`: Consumption multiplied by the evaluation factor
     - `evaluation_factor`: Conversion/evaluation factor
-    - `unit_raw`: Raw unit (EH for heating, m³ for water)
     - `monthly_history`: This room's consumption per month since year start
     - `period_start` / `period_end`: Billing period (heating only)
     - `correction_detected`: Set when a retroactive downward correction was detected (heating only)
