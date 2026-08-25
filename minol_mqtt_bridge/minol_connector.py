@@ -546,6 +546,21 @@ class MinolConnector:
                 month = 1
                 year += 1
 
+    @staticmethod
+    def _evaluated_value(consumption, factor, api_value=None):
+        """
+        Determine the factor-weighted (bewertet) consumption for a single entry.
+
+        The derivation ``consumption * evaluation_factor`` is preferred so that the
+        published value stays fully reproducible. If no factor is available, the
+        value reported by the API (``consumptionBew``) is used as a fallback.
+        """
+        if factor is not None:
+            return round(_to_number(consumption) * _to_number(factor), 3)
+        if api_value is not None:
+            return round(_to_number(api_value), 3)
+        return round(_to_number(consumption), 3)
+
     def _augment_with_monthly_breakdown(
         self,
         processed: Dict[str, Any],
@@ -567,7 +582,7 @@ class MinolConnector:
         is_heating = cons_type == "HEIZUNG"
 
         overall_timeline = []
-        by_room_monthly = {}  # room key -> {period_int: value}
+        by_room_monthly = {}  # room key -> {period_int: {consumption, evaluation_factor, consumption_evaluated}}
 
         for period in self._month_range(timeline_start, timeline_end):
             try:
@@ -584,29 +599,41 @@ class MinolConnector:
 
             table = raw.get("table") or []
             month_total = 0.0
+            month_total_evaluated = 0.0
             has_value = False
 
             for room_data in table:
                 consumption = _to_number(room_data.get("consumption", 0))
                 if is_heating:
                     consumption = int(round(consumption))
+
+                factor = room_data.get("bewertung")
+                consumption_evaluated = self._evaluated_value(consumption, factor, room_data.get("consumptionBew"))
+
                 month_total += consumption
+                month_total_evaluated += _to_number(consumption_evaluated)
                 has_value = True
 
                 key = room_data.get("gerNr") or room_data.get("raumKey") or room_data.get("raum")
-                by_room_monthly.setdefault(key, {})[period] = consumption
+                by_room_monthly.setdefault(key, {})[period] = {
+                    "consumption": consumption,
+                    "evaluation_factor": factor,
+                    "consumption_evaluated": consumption_evaluated,
+                }
 
             if not has_value:
                 continue
 
             if is_heating:
                 month_total = int(round(month_total))
+            month_total_evaluated = round(month_total_evaluated, 3)
 
             overall_timeline.append(
                 {
                     "period": f"{period[4:6]}.{period[:4]}",
                     "period_int": period,
-                    "value": month_total,
+                    "consumption": month_total,
+                    "consumption_evaluated": month_total_evaluated,
                 }
             )
 
@@ -619,7 +646,9 @@ class MinolConnector:
                 {
                     "period": f"{p[4:6]}.{p[:4]}",
                     "period_int": p,
-                    "value": monthly[p],
+                    "consumption": monthly[p]["consumption"],
+                    "evaluation_factor": monthly[p]["evaluation_factor"],
+                    "consumption_evaluated": monthly[p]["consumption_evaluated"],
                 }
                 for p in sorted(monthly)
             ]
