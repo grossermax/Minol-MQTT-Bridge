@@ -34,31 +34,68 @@ jobs:
       # we commit the trimmed add-on changelog onto the open release PR branch
       # that release-please maintains. When that PR is merged, the file lands on
       # `main` through the regular (protection-compliant) pull request flow.
-      - name: Sync add-on changelog on release PR branch
+      - name: Localize release date and sync add-on changelog on release PR branch
         if: ${{ steps.release.outputs.pr }}
         env:
           # Pass the raw PR JSON string through; parsing happens at runtime with
           # jq. Using fromJSON() here would fail template evaluation on runs
           # where no release PR exists (empty string -> invalid JSON).
           RELEASE_PR: ${{ steps.release.outputs.pr }}
+          # release-please always stamps the changelog/PR date in UTC (the date
+          # is hard-coded to UTC inside conventional-changelog-writer). Rewrite
+          # it to this local timezone instead so the header shows the date as it
+          # is where the release is cut.
+          LOCAL_TZ: Europe/Berlin
+          # Needed for `gh` to edit the release PR description.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           RELEASE_PR_BRANCH="$(printf '%s' "$RELEASE_PR" | jq -r '.headBranchName')"
+          RELEASE_PR_NUMBER="$(printf '%s' "$RELEASE_PR" | jq -r '.number')"
           git fetch origin "$RELEASE_PR_BRANCH"
           git checkout "$RELEASE_PR_BRANCH"
-          # release-please has already regenerated the full root CHANGELOG.md on
-          # this branch; trim it to just the newest version block for the add-on.
+
+          # Compute the local date for the timezone above. release-please writes
+          # the newest version header as e.g. "## [1.4.0](url) (2026-08-25)" with
+          # the date in UTC; we swap that date for the local one.
+          LOCAL_DATE="$(TZ="$LOCAL_TZ" date +%F)"
+          echo "Using local release date $LOCAL_DATE ($LOCAL_TZ)."
+
+          # Replace the date only on the first (newest) "## [" version header,
+          # leaving historical entries untouched.
+          replace_first_header_date() {
+            # $1 = file to edit
+            awk -v ld="$LOCAL_DATE" '
+              !done && /^## \[/ {
+                sub(/\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)/, "(" ld ")")
+                done = 1
+              }
+              { print }
+            ' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+          }
+
+          # Localize the date in the full root changelog first...
+          replace_first_header_date CHANGELOG.md
+          # ...then trim it to just the newest version block for the add-on
+          # (Home Assistant shows the add-on CHANGELOG.md in full).
           awk '/^## \[/ { count++; if (count == 2) exit } { print }' \
             CHANGELOG.md > minol_mqtt_bridge/CHANGELOG.md
           # Drop trailing blank lines for a tidy file.
           sed -i -e :a -e '/^\n*$/{$d;N;ba}' minol_mqtt_bridge/CHANGELOG.md
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add minol_mqtt_bridge/CHANGELOG.md
+          git add CHANGELOG.md minol_mqtt_bridge/CHANGELOG.md
           if git diff --staged --quiet; then
-            echo "Add-on changelog already up to date."
+            echo "Changelogs already up to date."
           else
-            git commit -m "chore: sync add-on changelog for Home Assistant"
+            git commit -m "chore: localize release date and sync add-on changelog for Home Assistant"
             git push origin "HEAD:$RELEASE_PR_BRANCH"
           fi
 
+          # release-please renders the PR description from the same UTC-stamped
+          # changelog, so localize the date there as well.
+          gh pr view "$RELEASE_PR_NUMBER" --json body --jq .body > pr_body.md
+          replace_first_header_date pr_body.md
+          gh pr edit "$RELEASE_PR_NUMBER" --body-file pr_body.md
+          rm -f pr_body.md
