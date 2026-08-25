@@ -1,13 +1,24 @@
 # Changelog
 
-## [1.3.0](https://github.com/grossermax/Minol-MQTT-Bridge/compare/v1.2.2...v1.3.0) (2026-08-24)
+## [1.4.0](https://github.com/grossermax/Minol-MQTT-Bridge/compare/v1.3.0...v1.4.0) (2026-08-25)
 
 
 ### Features
 
-* update entity names for clarity and consistency ([#20](https://github.com/grossermax/Minol-MQTT-Bridge/issues/20)) ([f6ff02c](https://github.com/grossermax/Minol-MQTT-Bridge/commit/f6ff02c9e1237b53d0b29b118a46e87eefb64139))
+* expose evaluated consumption for Home Assistant statistics (instead of raw consumption) ([f182438](https://github.com/grossermax/Minol-MQTT-Bridge/commit/f18243807eca114af14ecdfb3d0a1961db52465d))
+* extend monthly history to include evaluated consumption and factors; and rename consumption attributes to total_consumption and total_consumption_evaluated for clarity ([ae253c0](https://github.com/grossermax/Minol-MQTT-Bridge/commit/ae253c0aa4833905bb296dddd38a9f2a2e918219))
 
 
 ### Bug Fixes
 
-* add unit_raw to "Minol Heating Total" ([04b3341](https://github.com/grossermax/Minol-MQTT-Bridge/commit/04b3341c227c417a0d569af2c2caba2f287b7c8d))
+* remove unit_raw attribute from heating data and documentation ([aaa84c2](https://github.com/grossermax/Minol-MQTT-Bridge/commit/aaa84c2fb56e58c7aa06d292201f5623639f39cf))
+
+
+### Miscellaneous Chores
+
+* localize release date and sync add-on changelog for Home Assistant ([5f576a0](https://github.com/grossermax/Minol-MQTT-Bridge/commit/5f576a021c736a697d540a37c514b13eb93cbf56))
+
+
+### Documentation
+
+* update sensor naming for consistency in README and missing attributes per room ([4a6148a](https://github.com/grossermax/Minol-MQTT-Bridge/commit/4a6148aa0c28962ced1699943fcb457cba2199f3))
