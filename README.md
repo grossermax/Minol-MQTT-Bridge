@@ -132,7 +132,8 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 - `sensor.heizkostenverteiler_total` - Total heating consumption (EH / Einheiten)
     - **State**: the evaluated (factor-weighted) consumption (`total_consumption_evaluated`), so Home Assistant can
       build monthly/yearly statistics and cross-room comparisons without an extra template sensor
-    - **Attributes**: `monthly_history` (per-month consumption since year start), `din_comparison_percent`,
+    - **Attributes**: `monthly_history` (per-month breakdown since year start; each entry holds `period`,
+      `consumption` and `consumption_evaluated`), `din_comparison_percent`,
       `last_update`, `period_start`, `period_end`, `correction_detected`, `total_consumption` (raw, unweighted sum),
       `total_consumption_evaluated` (sum of the per-room factor-weighted/evaluated consumption)
 - `sensor.minol_hot_water_total` - Total hot water consumption (m³)
@@ -158,10 +159,22 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
     - `device_number`: Meter device number
     - `current_reading`: Current meter reading
     - `initial_reading`: Starting meter reading
-    - `consumption`: Consumption in the current billing period (raw, unweighted)
-    - `consumption_evaluated`: Consumption multiplied by the evaluation factor
+    - `total_consumption`: Consumption in the current billing period (raw, unweighted)
     - `evaluation_factor`: Conversion/evaluation factor
-    - `monthly_history`: This room's consumption per month since year start
+    - `total_consumption_evaluated`: Consumption multiplied by the evaluation factor
+    - `monthly_history`: This room's per-month breakdown since year start. Each entry contains `period`,
+      `consumption` (raw units), `evaluation_factor` (the factor applied for that month) and
+      `consumption_evaluated` (`consumption` × `evaluation_factor`). Keeping these together per month documents the
+      applied factor, keeps the derivation fully traceable and correctly reflects a factor change between billing years.
+      Example:
+
+      ```yaml
+      monthly_history:
+        - period: '01.2026'
+          consumption: 193
+          evaluation_factor: 1.015
+          consumption_evaluated: 195.895
+      ```
     - `period_start` / `period_end`: Billing period (heating only)
     - `correction_detected`: Set when a retroactive downward correction was detected (heating only)
 

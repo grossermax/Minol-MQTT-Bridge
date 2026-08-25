@@ -372,7 +372,14 @@ def run_sync():
 
         # Build timeline attributes
         timeline_attrs = {
-            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [
+                {
+                    "period": entry.get("period"),
+                    "consumption": entry.get("consumption", 0),
+                    "consumption_evaluated": entry.get("consumption_evaluated"),
+                }
+                for entry in timeline
+            ],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -408,7 +415,9 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [
+                {"period": entry.get("period"), "consumption": entry.get("consumption", 0)} for entry in timeline
+            ],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -432,7 +441,9 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         timeline_attrs = {
-            "monthly_history": [{"period": entry.get("period"), "value": entry.get("value", 0)} for entry in timeline],
+            "monthly_history": [
+                {"period": entry.get("period"), "consumption": entry.get("consumption", 0)} for entry in timeline
+            ],
             "din_comparison_percent": din_comparison,
             "last_update": data.get("timestamp", ""),
         }
@@ -505,13 +516,15 @@ def run_sync():
                 "device_number": device_num,
                 "current_reading": reading,
                 "initial_reading": initial,
-                "consumption": val,
+                "total_consumption": val,
                 "evaluation_factor": factor,
-                "consumption_evaluated": val_evaluated,
+                "total_consumption_evaluated": val_evaluated,
                 "monthly_history": [
                     {
                         "period": entry.get("period"),
-                        "value": entry.get("value", 0),
+                        "consumption": entry.get("consumption", 0),
+                        "evaluation_factor": entry.get("evaluation_factor"),
+                        "consumption_evaluated": entry.get("consumption_evaluated"),
                     }
                     for entry in room.get("monthly", [])
                 ],
@@ -527,12 +540,12 @@ def run_sync():
 
                 extended_attrs["period_start"] = f"{billing_year}-01-01"
                 extended_attrs["period_end"] = f"{billing_year}-12-31"
-                extended_attrs["consumption"] = period_consumption
+                extended_attrs["total_consumption"] = period_consumption
 
                 # The sensor state exposes the evaluated (factor-weighted)
                 # consumption so Home Assistant can build long-term statistics
                 # without an extra template sensor. The raw consumption stays
-                # available via the "consumption" attribute above.
+                # available via the "total_consumption" attribute above.
                 published_val, correction_detected = apply_reset_protection(
                     uid, val_evaluated, billing_year, factor=factor
                 )
