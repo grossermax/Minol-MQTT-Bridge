@@ -155,7 +155,7 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
 - **State** (heating rooms): the evaluated (factor-weighted) consumption (`consumption_evaluated`), so Home Assistant
   can build long-term statistics and compare/aggregate rooms without an extra template sensor
 - **Attributes** (per room):
-    - `room_name`: Room name
+    - `room_name_orig`: Room name as provided by Minol (may differ from your actual room usage)
     - `device_number`: Meter device number
     - `current_reading`: Current meter reading
     - `initial_reading`: Starting meter reading
