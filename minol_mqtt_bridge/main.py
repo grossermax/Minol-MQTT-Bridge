@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from datetime import date
+from typing import Any
 
 import paho.mqtt.client as mqtt
 
@@ -371,7 +372,7 @@ def run_sync():
         din_comparison = calculate_din_comparison(timeline)
 
         # Build timeline attributes
-        timeline_attrs = {
+        timeline_attrs: dict[str, Any] = {
             "monthly_history": [
                 {
                     "period": entry.get("period"),
@@ -381,7 +382,6 @@ def run_sync():
                 for entry in timeline
             ],
             "din_comparison_percent": din_comparison,
-            "last_update": data.get("timestamp", ""),
         }
 
         heating_total_uid = "heizkostenverteiler_total"
@@ -406,6 +406,7 @@ def run_sync():
         timeline_attrs["correction_detected"] = heating_total_corrected
         timeline_attrs["total_consumption"] = val
         timeline_attrs["total_consumption_evaluated"] = val_evaluated
+        timeline_attrs["last_update"] = data.get("timestamp", "")
         publish_state(heating_total_uid, published_heating_total)
         publish_attributes(heating_total_uid, timeline_attrs)
 
@@ -519,6 +520,7 @@ def run_sync():
                 "total_consumption": val,
                 "evaluation_factor": factor,
                 "total_consumption_evaluated": val_evaluated,
+                "last_update": data.get("timestamp", ""),
                 "monthly_history": [
                     {
                         "period": entry.get("period"),
