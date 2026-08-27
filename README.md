@@ -162,6 +162,7 @@ The add-on creates sensors for each selected consumption type in Home Assistant:
     - `total_consumption`: Consumption in the current billing period (raw, unweighted)
     - `evaluation_factor`: Conversion/evaluation factor
     - `total_consumption_evaluated`: Consumption multiplied by the evaluation factor
+    - `last_update`: Timestamp (UTC, ISO 8601) of the last data fetch from the Minol portal
     - `monthly_history`: This room's per-month breakdown since year start. Each entry contains `period`,
       `consumption` (raw units), `evaluation_factor` (the factor applied for that month) and
       `consumption_evaluated` (`consumption` × `evaluation_factor`). Keeping these together per month documents the

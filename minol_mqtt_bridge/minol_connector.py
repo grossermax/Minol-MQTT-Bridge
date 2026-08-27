@@ -12,7 +12,7 @@ backups small.
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin, urlparse
@@ -463,12 +463,10 @@ class MinolConnector:
                     "period": {"start": "YYYYMM", "end": "YYYYMM"}
                 }
         """
-        from datetime import datetime
-
         logger.info(f"Fetching all consumption data from {timeline_start} to {timeline_end}")
 
         consumption_data: Dict[str, Any] = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
             "period": {"start": timeline_start, "end": timeline_end},
         }
 
