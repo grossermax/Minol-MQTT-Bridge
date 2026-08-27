@@ -640,7 +640,7 @@ class MinolConnector:
         processed["timeline"] = overall_timeline
 
         for room in processed.get("by_room", []):
-            key = room.get("device_number") or room.get("room_key") or room.get("room_name")
+            key = room.get("device_number") or room.get("room_key") or room.get("room_name_orig")
             monthly = by_room_monthly.get(key, {})
             room["monthly"] = [
                 {
@@ -693,7 +693,7 @@ class MinolConnector:
 
                 consumption_evaluated = room_data.get("consumptionBew", 0)
                 room_info = {
-                    "room_name": room_data.get("raum", "Unknown"),
+                    "room_name_orig": room_data.get("raum", "Unknown"),
                     "room_key": room_data.get("raumKey"),
                     "device_number": room_data.get("gerNr"),
                     "consumption": consumption,
@@ -849,12 +849,12 @@ class MinolConnector:
             return data[consumption_type]["by_room"]
         return None
 
-    def get_room_consumption(self, room_name: str, consumption_type: str = "heating") -> Optional[float]:
+    def get_room_consumption(self, room_name_orig: str, consumption_type: str = "heating") -> Optional[float]:
         """
         Get consumption for a specific room.
 
         Args:
-            room_name: Name of the room
+            room_name_orig: Original room name from Minol
             consumption_type: One of "heating", "hot_water", "cold_water"
 
         Returns:
@@ -863,7 +863,7 @@ class MinolConnector:
         rooms = self.get_rooms_data(consumption_type)
         if rooms:
             for room in rooms:
-                if room["room_name"] == room_name:
+                if room["room_name_orig"] == room_name_orig:
                     return room["consumption"]
         return None
 

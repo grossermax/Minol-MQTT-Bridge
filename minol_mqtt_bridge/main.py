@@ -467,7 +467,7 @@ def run_sync():
             return
 
         for room in data[category_key]["by_room"]:
-            r_name = room.get("room_name", "Unknown")
+            r_name = room.get("room_name_orig", "Unknown")
             device_num = room.get("device_number", "")
 
             safe_room = (
@@ -512,7 +512,7 @@ def run_sync():
             factor = room.get("evaluation_score", 0)
 
             extended_attrs = {
-                "room_name": r_name,
+                "room_name_orig": r_name,
                 "device_number": device_num,
                 "current_reading": reading,
                 "initial_reading": initial,
