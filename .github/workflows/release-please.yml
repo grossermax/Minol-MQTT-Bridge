@@ -4,6 +4,24 @@ on:
   push:
     branches:
       - main
+  # release-please stamps the changelog/PR date with the date of the run, not
+  # the merge date. Between opening the release PR and actually merging it
+  # (possibly days later) nothing pushes to main, so the date would go stale.
+  # A daily run re-generates the open release PR with the current date, so
+  # whenever the PR is merged it already carries the merge-day date in both
+  # CHANGELOG.md and the PR description.
+  #
+  # GitHub cron only understands UTC, so we register both the winter (CET,
+  # UTC+1) and summer (CEST, UTC+2) slots for 00:01 Europe/Berlin. A gate step
+  # keeps only the run that is actually 00:xx local time, so effectively this
+  # fires once per day at ~00:01 Berlin year-round, regardless of DST. (The
+  # other slot still starts a run each day but is skipped right after the gate,
+  # so it ends green as a no-op.)
+  schedule:
+    - cron: "1 23 * * *" # 00:01 Europe/Berlin during winter time (CET)
+    - cron: "1 22 * * *" # 00:01 Europe/Berlin during summer time (CEST)
+  # Manual fallback: refresh the date on demand right before merging.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,13 +31,37 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # GitHub cron fires both scheduled slots year-round (see the schedule
+      # comment above). On scheduled runs, continue only when it is really
+      # 00:xx in Europe/Berlin, so exactly one of the two slots proceeds each
+      # day. We check the hour (not the exact minute) to tolerate GitHub's
+      # scheduler delays. Non-scheduled events (push, manual) always proceed.
+      - name: Gate scheduled runs to 00:xx Europe/Berlin (DST-aware)
+        id: gate
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BERLIN_HOUR="$(TZ=Europe/Berlin date +%H)"
+          if [ "$BERLIN_HOUR" = "00" ]; then
+            echo "Berlin local hour is $BERLIN_HOUR -> proceeding."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Berlin local hour is $BERLIN_HOUR -> skipping this slot."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # Creates/updates a "release PR" that collects all Conventional Commits,
       # bumps the version in config.yaml and regenerates the full CHANGELOG.md
       # in the repository root. Merging that PR publishes a GitHub Release.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+
       - uses: googleapis/release-please-action@v4
         id: release
+        if: steps.gate.outputs.proceed == 'true'
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -35,7 +77,7 @@ jobs:
       # that release-please maintains. When that PR is merged, the file lands on
       # `main` through the regular (protection-compliant) pull request flow.
       - name: Localize release date and sync add-on changelog on release PR branch
-        if: ${{ steps.release.outputs.pr }}
+        if: ${{ steps.gate.outputs.proceed == 'true' && steps.release.outputs.pr }}
         env:
           # Pass the raw PR JSON string through; parsing happens at runtime with
           # jq. Using fromJSON() here would fail template evaluation on runs
